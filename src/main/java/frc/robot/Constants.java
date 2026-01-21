@@ -108,11 +108,64 @@ public class Constants {
     }
     
     public class constTurret {
+        // Yaw (azimuth) motor ID
         public static final int turretYawMotorID = 10;
+        
+        // Pitch (elevation) motor ID
+        public static final int turretPitchMotorID = 11;
 
-        // PID gains for turret yaw control (Phoenix 6 PositionVoltage)
-        public static final double pYaw = 25.0;  // Proportional gain - increased from 1
-        public static final double iYaw = 0.0;   // Integral gain
-        public static final double dYaw = 0.5;   // Derivative gain for damping
+        // Conversion factor: motor rotations per degree of turret rotation
+        // Adjust based on your gearing (e.g., if 10:1 gearing, then 10/360 = 0.0278)
+        public static final double rotationsPerDegree = 1.0 / 360.0; // 1 motor rotation = 360 degrees (adjust for gearing)
+
+        // ===== YAW (AZIMUTH) CONTROL =====
+        // Motion Magic parameters for yaw
+        public static final double yawMotionVelocity = 360.0; // degrees per second cruise velocity
+        public static final double yawMotionAcceleration = 720.0; // degrees per second^2 acceleration
+        public static final double yawExpoKA = 0.0; // Exponential acceleration gain
+        public static final double yawExpoKV = 0.0; // Exponential velocity gain
+
+        // Feedforward gains for yaw (Phoenix 6 MotionMagic)
+        public static final double yawKG = 0.0;  // Gravity feedforward (volts) - not needed for horizontal turret
+        public static final double yawKS = 0.1;  // Static friction feedforward (volts)
+        public static final double yawKV = 0.12; // Velocity feedforward (volts per rotation/sec)
+        public static final double yawKA = 0.01; // Acceleration feedforward (volts per rotation/sec^2)
+
+        // PID gains for turret yaw control (Phoenix 6 MotionMagicVoltage, Slot 0)
+        public static final double yawKP = 30.0;  // Proportional gain
+        public static final double yawKI = 0.0;   // Integral gain
+        public static final double yawKD = 0.0;   // Derivative gain
+
+        // Software limits for yaw (in degrees)
+        public static final double minYawDegrees = -180.0;
+        public static final double maxYawDegrees = 180.0;
+        
+        // ===== PITCH (ELEVATION) CONTROL =====
+        // Motion Magic parameters for pitch
+        public static final double pitchMotionVelocity = 180.0; // degrees per second cruise velocity
+        public static final double pitchMotionAcceleration = 360.0; // degrees per second^2 acceleration
+        public static final double pitchExpoKA = 0.0; // Exponential acceleration gain
+        public static final double pitchExpoKV = 0.0; // Exponential velocity gain
+
+        // Feedforward gains for pitch (Phoenix 6 MotionMagic)
+        public static final double pitchKG = 0.5;  // Gravity feedforward (volts) - IMPORTANT for elevation!
+        public static final double pitchKS = 0.15; // Static friction feedforward (volts)
+        public static final double pitchKV = 0.12; // Velocity feedforward (volts per rotation/sec)
+        public static final double pitchKA = 0.01; // Acceleration feedforward (volts per rotation/sec^2)
+
+        // PID gains for turret pitch control (Phoenix 6 MotionMagicVoltage, Slot 0)
+        public static final double pitchKP = 35.0;  // Proportional gain
+        public static final double pitchKI = 0.0;   // Integral gain
+        public static final double pitchKD = 0.5;   // Derivative gain for damping
+
+        // Software limits for pitch (in degrees) - launch angle range
+        public static final double minPitchDegrees = 0.0;   // Horizontal
+        public static final double maxPitchDegrees = 90.0;  // Vertical
+        
+        // ===== SHOOTER PHYSICS CONSTANTS =====
+        // These are used for calculating launch angles based on projectile motion
+        public static final double shooterVelocity = 8.6;      // Launch velocity in m/s
+        public static final double shooterHeight = 0.135;      // Height of shooter off ground in meters
+        public static final double targetHeight = 1.0;         // Height of target (AprilTag center) in meters
     }
 }
