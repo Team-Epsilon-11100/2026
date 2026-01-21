@@ -167,5 +167,29 @@ public class Constants {
         public static final double shooterVelocity = 8.6;      // Launch velocity in m/s
         public static final double shooterHeight = 0.135;      // Height of shooter off ground in meters
         public static final double targetHeight = 1.0;         // Height of target (AprilTag center) in meters
+        
+        // ===== LOOK-AHEAD / MOTION COMPENSATION =====
+        // These constants account for robot motion and system latency during aiming
+        
+        // Code loop period in seconds (20ms = 0.02s for standard FRC loop)
+        public static final double loopPeriodSeconds = 0.02;
+        
+        // Total system latency in seconds (vision processing + motor response + mechanical delay)
+        // This is the time from when we calculate aim to when the projectile actually launches
+        public static final double systemLatencySeconds = 0.1;  // 100ms total system latency
+        
+        // Look-ahead time for prediction (how far ahead to predict robot position)
+        // This should account for: latency + time for turret to reach target + launch decision time
+        public static final double lookAheadTimeSeconds = 0.15;  // 150ms look-ahead
+        
+        // Enable/disable motion compensation (useful for testing)
+        public static final boolean enableMotionCompensation = true;
+        
+        // Minimum velocity threshold to apply compensation (m/s)
+        // Below this, we don't apply compensation to avoid jitter when stationary
+        public static final double minVelocityThreshold = 0.05;  // 5 cm/s
+        
+        // Minimum angular velocity threshold to apply rotation compensation (rad/s)
+        public static final double minAngularVelocityThreshold = 0.05;  // ~3 deg/s
     }
 }

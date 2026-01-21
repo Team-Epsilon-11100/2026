@@ -134,6 +134,7 @@ public class Turret extends SubsystemBase {
 
     @Override
     public void periodic() {
+        
         // Update simulation if in sim mode
         if (Utils.isSimulation()) {
             updateSimulation();
@@ -283,29 +284,93 @@ public class Turret extends SubsystemBase {
         setPitch(pitchDegrees);
     }
 
+    /**
+     * Calculates the time of flight for a projectile to reach the target.
+     * Uses the horizontal distance and launch angle to determine flight time.
+     * 
+     * @param distance Horizontal distance to target (m)
+     * @param launchAngleDegrees Launch angle in degrees
+     * @return Time of flight in seconds
+     */
+    private double calculateTimeOfFlight(double distance, double launchAngleDegrees) {
+        double launchAngleRad = Math.toRadians(launchAngleDegrees);
+        double horizontalVelocity = constTurret.shooterVelocity * Math.cos(launchAngleRad);
+        
+        if (horizontalVelocity <= 0) {
+            return 0.0;  // Prevent division by zero
+        }
+        
+        return distance / horizontalVelocity;
+    }
+
+    /**
+     * Automatically calculates yaw with motion compensation.
+     * Predicts where the robot will be when the projectile reaches the target,
+     * accounting for robot translation and rotation.
+     * 
+     * @param tagId The AprilTag ID to aim at
+     */
     public void autoYaw(int tagId) {
         try {
             Pose2d robotPose = drivetrain.getPose();
             Pose3d goalPose = constVision.aprilTagLayout.getTagPose(tagId).get();
             
-            // Convert 3D goal pose to 2D (use x, y coordinates)
-            Pose2d goalPose2d = new Pose2d(goalPose.getX(), goalPose.getY(), goalPose.getRotation().toRotation2d());
-            SmartDashboard.putString("AutoYaw - Tag Pose", goalPose.toString());
-            // Calculate the vector from robot to goal
-            double deltaX = goalPose2d.getX() - robotPose.getX();
-            double deltaY = goalPose2d.getY() - robotPose.getY();
+            // Get robot velocities for motion compensation
+            double[] velocities = drivetrain.getFieldVelocities();
+            double vx = velocities[0];  // Field-relative X velocity (m/s)
+            double vy = velocities[1];  // Field-relative Y velocity (m/s)
+            double omega = velocities[2];  // Angular velocity (rad/s)
             
-            // Calculate the angle in radians using atan2
-            double angleToTagRadians = Math.atan2(deltaY, deltaX);
+            // Calculate base vector from robot to goal
+            double deltaX = goalPose.getX() - robotPose.getX();
+            double deltaY = goalPose.getY() - robotPose.getY();
+            double currentDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
             
-            // Convert to degrees
+            // ===== MOTION COMPENSATION =====
+            // Calculate compensated aim point based on robot motion
+            double compensatedDeltaX = deltaX;
+            double compensatedDeltaY = deltaY;
+            double rotationCompensationDeg = 0.0;
+            
+            if (constTurret.enableMotionCompensation) {
+                // Calculate time of flight (approximate using current distance and 45° angle estimate)
+                double estimatedFlightTime = calculateTimeOfFlight(currentDistance, 45.0);
+                
+                // Total look-ahead time = system latency + flight time + base look-ahead
+                double totalLookAheadTime = constTurret.systemLatencySeconds + 
+                                           constTurret.lookAheadTimeSeconds + 
+                                           estimatedFlightTime;
+                
+                // Predict future robot position based on current velocity
+                double speed = Math.sqrt(vx * vx + vy * vy);
+                if (speed > constTurret.minVelocityThreshold) {
+                    // Adjust target to compensate for robot translation
+                    // If robot moves +X, we need to aim more -X relative to current position
+                    compensatedDeltaX = deltaX - (vx * totalLookAheadTime);
+                    compensatedDeltaY = deltaY - (vy * totalLookAheadTime);
+                }
+                
+                // Compensate for robot rotation
+                // If robot is rotating CCW (+omega), the turret needs to lead CW (negative compensation)
+                if (Math.abs(omega) > constTurret.minAngularVelocityThreshold) {
+                    // Angular compensation: predict how much robot will rotate during flight
+                    rotationCompensationDeg = -Math.toDegrees(omega * totalLookAheadTime);
+                }
+            }
+            
+            // Calculate the angle to the compensated target position
+            double angleToTagRadians = Math.atan2(compensatedDeltaY, compensatedDeltaX);
             double angleToTagDegrees = Math.toDegrees(angleToTagRadians);
             
-            // Account for robot's current heading
-            double robotHeadingDegrees = robotPose.getRotation().getDegrees();
+            // Predict future robot heading if rotating
+            double predictedHeadingDegrees = robotPose.getRotation().getDegrees();
+            if (constTurret.enableMotionCompensation && Math.abs(omega) > constTurret.minAngularVelocityThreshold) {
+                double totalLookAheadTime = constTurret.systemLatencySeconds + constTurret.lookAheadTimeSeconds;
+                predictedHeadingDegrees += Math.toDegrees(omega * totalLookAheadTime);
+            }
             
             // Calculate relative angle (angle from robot's perspective)
-            double relativeAngleDegrees = angleToTagDegrees - robotHeadingDegrees;
+            double relativeAngleDegrees = angleToTagDegrees - predictedHeadingDegrees + rotationCompensationDeg;
             
             // Normalize to [-180, 180] range
             while (relativeAngleDegrees > 180) {
@@ -315,16 +380,21 @@ public class Turret extends SubsystemBase {
                 relativeAngleDegrees += 360;
             }
             
-            // Set target yaw using the setYaw method (which handles clamping and hasTarget flag)
+            // Set target yaw
             setYaw(relativeAngleDegrees);
             
+            // SmartDashboard telemetry
             SmartDashboard.putNumber("AutoYaw - Robot Pose X", robotPose.getX());
             SmartDashboard.putNumber("AutoYaw - Robot Pose Y", robotPose.getY());
-            SmartDashboard.putNumber("AutoYaw - Tag Pose X", goalPose2d.getX());
-            SmartDashboard.putNumber("AutoYaw - Tag Pose Y", goalPose2d.getY());
-            SmartDashboard.putNumber("AutoYaw - Angle to Tag (deg)", angleToTagDegrees);
-            SmartDashboard.putNumber("AutoYaw - Robot Heading (deg)", robotHeadingDegrees);
+            SmartDashboard.putNumber("AutoYaw - Tag Pose X", goalPose.getX());
+            SmartDashboard.putNumber("AutoYaw - Tag Pose Y", goalPose.getY());
+            SmartDashboard.putNumber("AutoYaw - Robot Vx (m/s)", vx);
+            SmartDashboard.putNumber("AutoYaw - Robot Vy (m/s)", vy);
+            SmartDashboard.putNumber("AutoYaw - Robot Omega (deg/s)", Math.toDegrees(omega));
+            SmartDashboard.putNumber("AutoYaw - Rotation Compensation (deg)", rotationCompensationDeg);
             SmartDashboard.putNumber("AutoYaw - Calculated Target (deg)", relativeAngleDegrees);
+            SmartDashboard.putString("AutoYaw - Tag Pose", goalPose.toString());
+            
         } catch (Exception e) {
             System.err.println("Error in autoYaw: " + e.getMessage());
             e.printStackTrace();
@@ -334,6 +404,7 @@ public class Turret extends SubsystemBase {
     /**
      * Automatically calculates and sets the pitch (elevation/launch angle) based on the
      * robot's distance from the target AprilTag using projectile motion physics.
+     * Accounts for robot motion to predict the distance when projectile arrives.
      * 
      * @param tagId The AprilTag ID to aim at
      */
@@ -342,15 +413,50 @@ public class Turret extends SubsystemBase {
             Pose2d robotPose = drivetrain.getPose();
             Pose3d goalPose = constVision.aprilTagLayout.getTagPose(tagId).get();
             
-            // Calculate horizontal distance to target (2D distance on ground plane)
+            // Get robot velocities
+            double[] velocities = drivetrain.getFieldVelocities();
+            double vx = velocities[0];
+            double vy = velocities[1];
+            
+            // Calculate current vector to target
             double deltaX = goalPose.getX() - robotPose.getX();
             double deltaY = goalPose.getY() - robotPose.getY();
-            double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            double currentDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
             
-            // Calculate launch angle using projectile motion physics
+            // ===== MOTION COMPENSATION FOR PITCH =====
+            double compensatedDistance = currentDistance;
+            
+            if (constTurret.enableMotionCompensation) {
+                double speed = Math.sqrt(vx * vx + vy * vy);
+                
+                if (speed > constTurret.minVelocityThreshold) {
+                    // Calculate the component of velocity toward/away from target
+                    // Unit vector from robot to target
+                    double unitX = deltaX / currentDistance;
+                    double unitY = deltaY / currentDistance;
+                    
+                    // Radial velocity = velocity component along robot-to-target line
+                    // Positive = moving toward target, Negative = moving away
+                    double radialVelocity = vx * unitX + vy * unitY;
+                    
+                    // Initial flight time estimate
+                    double estimatedFlightTime = calculateTimeOfFlight(currentDistance, 45.0);
+                    double totalLookAheadTime = constTurret.systemLatencySeconds + 
+                                               constTurret.lookAheadTimeSeconds + 
+                                               estimatedFlightTime;
+                    
+                    // Predict future distance (subtract because positive radial velocity = getting closer)
+                    compensatedDistance = currentDistance - (radialVelocity * totalLookAheadTime);
+                    
+                    // Ensure distance stays positive
+                    compensatedDistance = Math.max(0.5, compensatedDistance);  // Min 0.5m
+                }
+            }
+            
+            // Calculate launch angle using projectile motion physics with compensated distance
             double calculatedAngle = FindLaunchAngle.calculateLaunchAngle(
                 constTurret.shooterVelocity,   // Launch velocity (m/s)
-                horizontalDistance,             // Distance to target (m)
+                compensatedDistance,            // Compensated distance to target (m)
                 constTurret.shooterHeight,     // Shooter height (m)
                 constTurret.targetHeight        // Target height (m)
             );
@@ -359,10 +465,12 @@ public class Turret extends SubsystemBase {
             setPitch(calculatedAngle);
             
             // SmartDashboard telemetry
-            SmartDashboard.putNumber("AutoPitch - Distance (m)", horizontalDistance);
+            SmartDashboard.putNumber("AutoPitch - Current Distance (m)", currentDistance);
+            SmartDashboard.putNumber("AutoPitch - Compensated Distance (m)", compensatedDistance);
             SmartDashboard.putNumber("AutoPitch - Calculated Angle (deg)", calculatedAngle);
             SmartDashboard.putNumber("AutoPitch - Shooter Velocity (m/s)", constTurret.shooterVelocity);
             SmartDashboard.putNumber("AutoPitch - Height Diff (m)", constTurret.targetHeight - constTurret.shooterHeight);
+            SmartDashboard.putString("AutoPitch - Status", "OK");
             
         } catch (IllegalArgumentException e) {
             // Target is out of range with current velocity
@@ -376,7 +484,8 @@ public class Turret extends SubsystemBase {
     
     /**
      * Automatically calculates and sets both yaw and pitch to aim at the target AprilTag.
-     * This combines autoYaw() and autoPitch() for complete autonomous aiming.
+     * This combines autoYaw() and autoPitch() for complete autonomous aiming with
+     * full motion compensation for robot translation and rotation.
      * 
      * @param tagId The AprilTag ID to aim at
      */

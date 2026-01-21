@@ -366,6 +366,20 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     public Pose2d getPose() {
         return getState().Pose;
     }
+    
+    /**
+     * Gets the current field-relative velocities of the robot.
+     *
+     * @return Array containing [vx (m/s), vy (m/s), omega (rad/s)]
+     */
+    public double[] getFieldVelocities() {
+        var state = getState();
+        return new double[] {
+            state.Speeds.vxMetersPerSecond,
+            state.Speeds.vyMetersPerSecond,
+            state.Speeds.omegaRadiansPerSecond
+        };
+    }
 
     /**
      * Snaps the robot to face a target angle with optimal rotation direction and
