@@ -2,6 +2,7 @@ package frc.robot;
 
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
@@ -191,5 +192,8 @@ public class Constants {
         
         // Minimum angular velocity threshold to apply rotation compensation (rad/s)
         public static final double minAngularVelocityThreshold = 0.05;  // ~3 deg/s
+
+        public static final Pose3d blueTarget = new Pose3d(new Translation3d(4.03, 4.035, 1.83),new Rotation3d(0, 0, 0));
+        public static final Pose3d redTarget = new Pose3d(new Translation3d(12.51, 4.035, 1.83), new Rotation3d(0, 0, 0));
     }
 }

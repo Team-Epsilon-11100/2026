@@ -11,6 +11,7 @@ import com.ctre.phoenix6.sim.TalonFXSSimState;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.smartdashboard.Mechanism2d;
 import edu.wpi.first.wpilibj.smartdashboard.MechanismLigament2d;
 import edu.wpi.first.wpilibj.smartdashboard.MechanismRoot2d;
@@ -20,7 +21,6 @@ import edu.wpi.first.wpilibj.util.Color8Bit;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 
 import frc.robot.Constants.constTurret;
-import frc.robot.Constants.constVision;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.utils.FindLaunchAngle;
 
@@ -200,7 +200,46 @@ public class Turret extends SubsystemBase {
         // Combined launch angle display
         SmartDashboard.putString("Turret Launch Angle", 
             String.format("Yaw: %.1f° | Pitch: %.1f°", clampedYaw, clampedPitch));
-    }
+        
+        // ===== CALCULATE SHOOTER TRAJECTORY VECTOR =====
+        // Get robot pose for field-relative conversion
+        Pose2d robotPose = drivetrain.getPose();
+        double robotHeadingRad = Math.toRadians(robotPose.getRotation().getDegrees());
+        
+        // Convert yaw and pitch to radians (yaw is relative to robot)
+        double turretYawRad = Math.toRadians(clampedYaw);
+        double pitchRad = Math.toRadians(clampedPitch);
+        
+        // Unit vector in turret-relative direction (pitch and yaw combined)
+        double horizontalDistance = Math.cos(pitchRad);  // Horizontal component magnitude
+        double verticalDistance = Math.sin(pitchRad);    // Vertical component magnitude
+        
+        // Apply turret yaw rotation to horizontal component (robot-relative)
+        double turretRelativeX = horizontalDistance * Math.cos(turretYawRad);
+        double turretRelativeY = horizontalDistance * Math.sin(turretYawRad);
+        
+        // Convert to field-relative by rotating by robot heading
+        double fieldRelativeX = turretRelativeX * Math.cos(robotHeadingRad) - turretRelativeY * Math.sin(robotHeadingRad);
+        double fieldRelativeY = turretRelativeX * Math.sin(robotHeadingRad) + turretRelativeY * Math.cos(robotHeadingRad);
+        double fieldRelativeZ = verticalDistance;
+        
+        // Calculate end point in field space (for vector visualization)
+        double trajectoryEndX = robotPose.getX() + fieldRelativeX;
+        double trajectoryEndY = robotPose.getY() + fieldRelativeY;
+        
+        // Telemetry - Field-relative coordinates
+        SmartDashboard.putNumber("Trajectory - X", fieldRelativeX);
+        SmartDashboard.putNumber("Trajectory - Y", fieldRelativeY);
+        SmartDashboard.putNumber("Trajectory - Z", fieldRelativeZ);
+        SmartDashboard.putNumberArray("Trajectory", new double[] {trajectoryEndX, trajectoryEndY, fieldRelativeZ});
+        
+        // Display the target pose from constants
+        Pose3d targetPose = DriverStation.getAlliance().isPresent() && 
+                           DriverStation.getAlliance().get() == DriverStation.Alliance.Blue
+            ? constTurret.blueTarget
+            : constTurret.redTarget;
+        SmartDashboard.putNumberArray("Target Position", new double[] {targetPose.getX(), targetPose.getY(), targetPose.getZ()});
+        }
     
     private void updateSimulation() {
         // ===== SIMULATE YAW MOTOR =====
@@ -307,13 +346,19 @@ public class Turret extends SubsystemBase {
      * Automatically calculates yaw with motion compensation.
      * Predicts where the robot will be when the projectile reaches the target,
      * accounting for robot translation and rotation.
+     * Uses the alliance-specific target pose from Constants instead of AprilTag lookup.
      * 
-     * @param tagId The AprilTag ID to aim at
+     * @param tagId Unused - kept for signature compatibility
      */
     public void autoYaw(int tagId) {
         try {
             Pose2d robotPose = drivetrain.getPose();
-            Pose3d goalPose = constVision.aprilTagLayout.getTagPose(tagId).get();
+            
+            // Get the target pose based on alliance
+            Pose3d goalPose = DriverStation.getAlliance().isPresent() && 
+                             DriverStation.getAlliance().get() == DriverStation.Alliance.Blue
+                ? constTurret.blueTarget
+                : constTurret.redTarget;
             
             // Get robot velocities for motion compensation
             double[] velocities = drivetrain.getFieldVelocities();
@@ -403,15 +448,21 @@ public class Turret extends SubsystemBase {
     
     /**
      * Automatically calculates and sets the pitch (elevation/launch angle) based on the
-     * robot's distance from the target AprilTag using projectile motion physics.
+     * robot's distance from the target using projectile motion physics.
      * Accounts for robot motion to predict the distance when projectile arrives.
+     * Uses the alliance-specific target pose from Constants instead of AprilTag lookup.
      * 
-     * @param tagId The AprilTag ID to aim at
+     * @param tagId Unused - kept for signature compatibility
      */
     public void autoPitch(int tagId) {
         try {
             Pose2d robotPose = drivetrain.getPose();
-            Pose3d goalPose = constVision.aprilTagLayout.getTagPose(tagId).get();
+            
+            // Get the target pose based on alliance
+            Pose3d goalPose = DriverStation.getAlliance().isPresent() && 
+                             DriverStation.getAlliance().get() == DriverStation.Alliance.Blue
+                ? constTurret.blueTarget
+                : constTurret.redTarget;
             
             // Get robot velocities
             double[] velocities = drivetrain.getFieldVelocities();
