@@ -37,19 +37,19 @@ public class Hood extends SubsystemBase {
         hoodPID = new MotionMagicExpoVoltage(constHood.minHoodMotorPos);
     }
 
-    public void setHoodMotorPos(double position) {
+    public void setMotorPos(double position) {
         hoodMotor.setControl(hoodPID.withPosition(position));
     }
-    public void setHoodAngle(double angle) {
-        setHoodMotorPos(angleToMotorPos(angle));
+    public void setAngle(double angle) {
+        setMotorPos(angleToMotorPos(angle));
     }
 
-    public double getHoodMotorPos() {
+    public double getMotorPos() {
         return hoodMotor.getPosition().getValueAsDouble();
     }
 
-    public double getHoodAngle() {
-        return motorPosToAngle(getHoodMotorPos());
+    public double getAngle() {
+        return motorPosToAngle(getMotorPos());
     }
 
     public double angleToMotorPos(double angle) {

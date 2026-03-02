@@ -1,38 +1,38 @@
 package frc.robot.utils;
 
-import edu.wpi.first.math.util.Units;
+import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constHood;
 
 public class BallisticSolver {
 
     public static class Config {
-        public double shooterZMeters = 0.135;
-        public double g = 9.806;
+        public double shooterZMeters = constBallisticSolver.shooterHeightMeters;
+        public double g = constBallisticSolver.gravity;
 
-        public double minAngleDeg = constHood.minHoodAngleDegrees; // example: 20.0
-        public double maxAngleDeg = constHood.maxHoodAngleDegrees; // example: 56.0
-        public double angleStepDeg = 0.05;
+        public double minAngleDeg = constHood.minHoodAngleDegrees;
+        public double maxAngleDeg = constHood.maxHoodAngleDegrees;
+        public double angleStepDeg = constBallisticSolver.angleStepDeg;
 
-        public Double minSpeedMps = null;
-        public Double maxSpeedMps = null;
+        public Double minSpeedMps = constBallisticSolver.minSpeedMps;
+        public Double maxSpeedMps = constBallisticSolver.maxSpeedMps;
 
-        public Double preferSpeedDeltaMps = null; // e.g. 0.25
+        public Double preferSpeedDeltaMps = constBallisticSolver.preferredSpeedDeltaMps;
 
         // --- Flywheel / drivetrain conversion ---
-        public double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches = 0.1016 m
+        public double flywheelDiameterMeters = constBallisticSolver.flywheelDiameterMeters;
         /**
          * k = (ball exit speed) / (wheel surface speed)
          * so wheelSurfaceSpeed = exitSpeed / k
          * Start with ~0.85 and tune from real shots.
          */
-        public double exitVelocityFactor = 0.85;
+        public double exitVelocityFactor = constBallisticSolver.exitVelocityFactor;
 
         /**
          * gearRatioMotorToWheel = motorRPM / wheelRPM
          * Example: 2:1 reduction (motor spins 2x wheel) => 2.0
          * Example: 1:2 overdrive (motor spins half of wheel) => 0.5
          */
-        public double gearRatioMotorToWheel = 1.0;
+        public double gearRatioMotorToWheel = constBallisticSolver.gearRatioMotorToWheel;
     }
 
     /**
@@ -115,6 +115,21 @@ public class BallisticSolver {
         return wheelRpm * cfg.gearRatioMotorToWheel;
     }
 
+    /** Convert motor RPM to exit speed (m/s) - inverse of the above conversions. */
+    public static double motorRpmToExitSpeed(double motorRpm, Config cfg) {
+        // motorRPM → wheelRPM
+        double wheelRpm = motorRpm / cfg.gearRatioMotorToWheel;
+        
+        // wheelRPM → wheel surface speed (m/s)
+        double r = cfg.flywheelDiameterMeters / 2.0;
+        double wheelSurfaceSpeed = (wheelRpm / 60.0) * (2.0 * Math.PI * r);
+        
+        // wheel surface speed → exit speed
+        double exitSpeed = wheelSurfaceSpeed * cfg.exitVelocityFactor;
+        
+        return exitSpeed;
+    }
+
     public static double requiredSpeedForAngle(double dMeters, double goalZMeters, double angleDeg, Config cfg) {
         double d = dMeters;
         if (d <= 1e-9) return Double.NaN;
@@ -186,6 +201,35 @@ public class BallisticSolver {
         }
 
         return Solution.invalid("No reachable solution within angle/speed limits.");
+    }
+
+    /**
+     * Solves ballistic trajectory preferring a constant motor RPM.
+     * This is a convenience overload that converts RPM to m/s internally.
+     * 
+     * @param xMeters Horizontal X distance to target (meters)
+     * @param yMeters Horizontal Y distance to target (meters)
+     * @param goalZMeters Target height (meters, absolute)
+     * @param preferredMotorRpm Desired motor RPM for consistent shots
+     * @param cfg Configuration with robot physical constants
+     * @return Solution with angle, speeds, and RPMs
+     */
+    public static Solution solvePreferConstantRpm(
+            double xMeters,
+            double yMeters,
+            double goalZMeters,
+            double preferredMotorRpm,
+            Config cfg
+    ) {
+        // Convert preferred motor RPM to exit speed (m/s)
+        double vRefMps = motorRpmToExitSpeed(preferredMotorRpm, cfg);
+        
+        if (!Double.isFinite(vRefMps) || vRefMps <= 0.0) {
+            return Solution.invalid("Invalid motor RPM or config parameters.");
+        }
+        
+        // Call the existing method with converted speed
+        return solvePreferConstantSpeed(xMeters, yMeters, goalZMeters, vRefMps, cfg);
     }
 
     // Example usage

@@ -10,9 +10,18 @@ import edu.wpi.first.math.util.Units;
 
 public class Constants {
 
-    // 72 inches from the ground
-    // TODO: change to account for red/blue allience side
+    public static final double intakeRpm = 5500;
+    public static final double indexerRpm = 5500;
     public static final Pose3d hubGoal = new Pose3d(0, 0, 0, new Rotation3d(0, 0, 0));
+
+    public class constAutoAim {
+        // Testing mode: aim directly at AprilTag center
+        // Competition mode: aim at custom goal height
+        public static final boolean useTagCenterForTesting = true; // ✅ Set to false for competition
+        
+        // Absolute goal height (used when useTagCenterForTesting = false)
+        public static final double absoluteGoalHeightMeters = Units.inchesToMeters(72); // 72" off ground
+    }
     
     public class constDrivetrain {
         public static final int joystickPort = 0;
@@ -104,7 +113,7 @@ public class Constants {
     }
     
     public class constHood {
-        public static final int hoodMotorId = 31;
+        public static final int hoodMotorId = 31; // 3x = Shooter system
         public static final double maxHoodAngleDegrees = 56;
         public static final double minHoodAngleDegrees = 20.0;
         public static final double maxHoodMotorPos = 12.5;
@@ -122,8 +131,8 @@ public class Constants {
     }
 
     public class constIntake {
-        public static final int intakeMotorId = 42;
-        public static final int pivotMotorId = 43;
+        public static final int intakeMotorId = 41; // 4x = Intake system
+        public static final int pivotMotorId = 42;
 
         public static final double intakeRPM = 5500;
         
@@ -136,13 +145,57 @@ public class Constants {
         public static final double pivotKd = 0.0;
     }
 
+    public class constIndexer {
+        public static final int indexerMotorId = 51; // 5x = Indexer system
+        
+        public static final double maxIndexerRPM = 3000;
+        public static final double minIndexerRPM = 0;
+        
+        public static final double kP = 0.1;
+        public static final double kI = 0.0;
+        public static final double kD = 0.0;
+    }
+
+    public class constKicker {
+        public static final int kickerMotorId = 61; // 6x = Kicker system
+        
+        public static final double maxKickerRPM = 4000;
+        public static final double minKickerRPM = 0;
+        
+        public static final double kP = 0.1;
+        public static final double kI = 0.0;
+        public static final double kD = 0.0;
+    }
+
     public class constFlywheel {
-        public static final int flywheelMotorId = 51;
+        public static final int flywheelMotorId = 33; // 3x = Shooter system (with Hood and Turret)
         public static final double maxFlywheelRPM = 6000;
         public static final double minFlywheelRPM = 0;
 
         public static final double kP = 0.1;
         public static final double kI = 0.0;
         public static final double kD = 0.0;
+    }
+
+    public class constBallisticSolver {
+        // Shooter physical constants
+        public static final double shooterHeightMeters = 0.135; // Height of shooter off ground (meters)
+        public static final double gravity = 9.806; // m/s²
+        
+        // Flywheel configuration
+        public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
+        public static final double exitVelocityFactor = 0.85; // Tune this: ball exit speed / wheel surface speed
+        public static final double gearRatioMotorToWheel = 1.0; // Motor RPM / Wheel RPM (adjust for your robot)
+        
+        // Preferred shooting parameters
+        public static final double preferredFlywheelRPM = 5500; // Target RPM for consistent shots
+        public static final double preferredSpeedDeltaMps = 0.25; // Allow ±0.25 m/s from preferred speed
+        
+        // Speed limits (optional - set to null if no limits)
+        public static final Double minSpeedMps = null; // Minimum exit speed (m/s)
+        public static final Double maxSpeedMps = null; // Maximum exit speed (m/s)
+        
+        // Angle search resolution
+        public static final double angleStepDeg = 0.05; // Search increment in degrees
     }
 }

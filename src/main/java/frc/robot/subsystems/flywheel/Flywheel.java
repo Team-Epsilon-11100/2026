@@ -15,13 +15,13 @@ public class Flywheel {
         var flywheelMotorConfigs = new TalonFXConfiguration();
 
         // set slot 0 gains
-        var slot1Configs = flywheelMotorConfigs.Slot1;
-        slot1Configs.kS = 0; // Add 0.25 V output to overcome static friction
-        slot1Configs.kV = 0; // A velocity target of 1 rps results in 0.12 V output
-        slot1Configs.kA = 0; // An acceleration of 1 rps/s requires 0.01 V output
-        slot1Configs.kP = constFlywheel.kP; // A position error of 2.5 rotations results in 12 V output
-        slot1Configs.kI = constFlywheel.kI; // no output for integrated error
-        slot1Configs.kD = constFlywheel.kD; // A velocity error of 1 rps results in 0.1 V output
+        var slot0Configs = flywheelMotorConfigs.Slot0;
+        slot0Configs.kS = 0; // Add 0.25 V output to overcome static friction
+        slot0Configs.kV = 0; // A velocity target of 1 rps results in 0.12 V output
+        slot0Configs.kA = 0; // An acceleration of 1 rps/s requires 0.01 V output
+        slot0Configs.kP = constFlywheel.kP; // A position error of 2.5 rotations results in 12 V output
+        slot0Configs.kI = constFlywheel.kI; // no output for integrated error
+        slot0Configs.kD = constFlywheel.kD; // A velocity error of 1 rps results in 0.1 V output
 
         // set Motion Magic Expo settings
         var motionMagicConfigs = flywheelMotorConfigs.MotionMagic;
@@ -30,7 +30,7 @@ public class Flywheel {
         motionMagicConfigs.MotionMagicExpo_kA = 0; // Use a slower kA of 0.1 V/(rps/s)
 
         flywheelMotor.getConfigurator().apply(flywheelMotorConfigs);
-        flywheelPID = new MotionMagicVelocityVoltage(0);
+        flywheelPID = new MotionMagicVelocityVoltage(0).withSlot(0);
     }
 
         public void setFlywheelRpm(double rpm) {

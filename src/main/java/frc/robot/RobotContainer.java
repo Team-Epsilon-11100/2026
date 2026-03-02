@@ -6,13 +6,80 @@ package frc.robot;
 
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
+import frc.robot.Constants.constDrivetrain;
+import frc.robot.Constants.constVision;
+import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.commands.AutoElevationCommand;
+import frc.robot.commands.DriveCommand;
+import frc.robot.generated.TunerConstants;
+import frc.robot.subsystems.drivetrain.Drivetrain;
+import frc.robot.subsystems.flywheel.Flywheel;
+import frc.robot.subsystems.hood.Hood;
+import frc.robot.subsystems.indexer.Indexer;
+import frc.robot.subsystems.intake.Intake;
+import frc.robot.subsystems.kicker.Kicker;
+import frc.robot.subsystems.vision.Vision;
+import frc.robot.subsystems.vision.VisionIOPhotonVision;
 
 public class RobotContainer {
+  // Subsystems
+  private final Drivetrain drivetrain;
+  private final Vision vision;
+  private final Flywheel flywheel;
+  private final Hood hood;
+  private final Intake intake;
+  private final Kicker kicker;
+  private final Indexer indexer;
+  
+
+  // Controllers
+  private final CommandXboxController driverController = new CommandXboxController(constDrivetrain.joystickPort);
+
   public RobotContainer() {
+    // Initialize drivetrain
+    drivetrain = TunerConstants.createDrivetrain();
+
+    vision = new Vision(
+        drivetrain::addVisionMeasurement,
+        new VisionIOPhotonVision("MainCamera", constVision.mainCameraOffset));
+
+    flywheel = new Flywheel();
+    hood = new Hood();
+    intake = new Intake();
+    kicker = new Kicker();
+    indexer = new Indexer();
+
+    intake.setIntakeRpm(Constants.intakeRpm);
+    indexer.setIndexerRpm(Constants.indexerRpm);
+
+    // Configure button bindings and default commands
     configureBindings();
   }
 
-  private void configureBindings() {}
+
+
+  private void configureBindings() {
+    // Default command: Advanced drive with heading lock, input curves, and slow mode
+    drivetrain.setDefaultCommand(
+        new DriveCommand(
+            drivetrain,
+            () -> -driverController.getLeftY(), // Forward/backward (negated for correct direction)
+            () -> -driverController.getLeftX(), // Left/right (negated for correct direction)
+            () -> -driverController.getRightX(), // Rotation (negated for correct direction)
+            driverController.leftBumper(), // Slow drive mode (hold left bumper)
+            constDrivetrain.maxSpeed, // Max speed
+            constDrivetrain.maxAngularRate, // Max angular rate
+            vision // Vision subsystem
+        ));
+    
+    // Button binding: Press A button to auto-aim at closest AprilTag
+    driverController.a().onTrue(
+      new AutoElevationCommand(hood, flywheel, drivetrain)
+    );
+  }
 
   public Command getAutonomousCommand() {
     return Commands.print("No autonomous command configured");
