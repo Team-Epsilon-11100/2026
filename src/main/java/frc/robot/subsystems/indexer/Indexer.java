@@ -40,7 +40,7 @@ public class Indexer extends SubsystemBase {
      * 
      * @param rpm Target RPM (positive = forward, negative = reverse)
      */
-    public void setIndexerRpm(double rpm) {
+    public void setRpm(double rpm) {
         // Convert RPM to rotations per second (RPS)
         indexerMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
     }
@@ -50,7 +50,7 @@ public class Indexer extends SubsystemBase {
      * 
      * @return Current RPM
      */
-    public double getIndexerRpm() {
+    public double getRpm() {
         return indexerMotor.getVelocity().getValueAsDouble() * 60.0;
     }
 
@@ -58,13 +58,13 @@ public class Indexer extends SubsystemBase {
      * Stop the indexer motor.
      */
     public void stop() {
-        setIndexerRpm(0);
+        setRpm(0);
     }
 
     @Override
     public void periodic() {
         // Log indexer status to SmartDashboard
-        SmartDashboard.putNumber("Indexer/RPM", getIndexerRpm());
+        SmartDashboard.putNumber("Indexer/RPM", getRpm());
         SmartDashboard.putNumber("Indexer/Current", indexerMotor.getSupplyCurrent().getValueAsDouble());
     }
 }

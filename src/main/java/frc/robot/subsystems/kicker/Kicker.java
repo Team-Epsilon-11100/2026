@@ -40,7 +40,7 @@ public class Kicker extends SubsystemBase {
      * 
      * @param rpm Target RPM (positive = forward, negative = reverse)
      */
-    public void setKickerRpm(double rpm) {
+    public void setRpm(double rpm) {
         // Convert RPM to rotations per second (RPS)
         kickerMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
     }
@@ -50,7 +50,7 @@ public class Kicker extends SubsystemBase {
      * 
      * @return Current RPM
      */
-    public double getKickerRpm() {
+    public double getRpm() {
         return kickerMotor.getVelocity().getValueAsDouble() * 60.0;
     }
 
@@ -58,13 +58,13 @@ public class Kicker extends SubsystemBase {
      * Stop the kicker motor.
      */
     public void stop() {
-        setKickerRpm(0);
+        setRpm(0);
     }
 
     @Override
     public void periodic() {
         // Log kicker status to SmartDashboard
-        SmartDashboard.putNumber("Kicker/RPM", getKickerRpm());
+        SmartDashboard.putNumber("Kicker/RPM", getRpm());
         SmartDashboard.putNumber("Kicker/Current", kickerMotor.getSupplyCurrent().getValueAsDouble());
     }
 }

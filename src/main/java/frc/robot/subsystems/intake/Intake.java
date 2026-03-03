@@ -55,7 +55,7 @@ public class Intake extends SubsystemBase {
      * 
      * @param rpm Target RPM (positive = intake, negative = eject)
      */
-    public void setIntakeRpm(double rpm) {
+    public void setRpm(double rpm) {
         // Convert RPM to rotations per second (RPS)
         intakeMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
     }
@@ -65,7 +65,7 @@ public class Intake extends SubsystemBase {
      * 
      * @return Current RPM
      */
-    public double getIntakeRpm() {
+    public double getRpm() {
         return intakeMotor.getVelocity().getValueAsDouble() * 60.0;
     }
 
@@ -73,23 +73,11 @@ public class Intake extends SubsystemBase {
      * Stop the intake motor.
      */
     public void stopIntake() {
-        setIntakeRpm(0);
+        setRpm(0);
     }
 
-    /**
-     * Set the pivot motor voltage (percent output).
-     * 
-     * @param percent Percent output (-1.0 to 1.0)
-     */
-    public void setPivotPercent(double percent) {
-        pivotMotor.set(percent);
-    }
-
-    /**
-     * Stop the pivot motor.
-     */
-    public void stopPivot() {
-        pivotMotor.set(0);
+    public void setPivotPos(double positionRotations) {
+        pivotMotor.setControl(pivotPositionControl.withPosition(positionRotations));
     }
 
     /**
@@ -97,13 +85,24 @@ public class Intake extends SubsystemBase {
      */
     public void stop() {
         stopIntake();
-        stopPivot();
+    }
+
+    public void deploy() {
+        setPivotPos(constIntake.deployedPos);
+    }
+
+    public void retract() {
+        setPivotPos(constIntake.retractedPos);
+    }
+
+    public void pump() {
+        setPivotPos(constIntake.pumpPos);
     }
 
     @Override
     public void periodic() {
         // Log intake status to SmartDashboard
-        SmartDashboard.putNumber("Intake/RPM", getIntakeRpm());
+        SmartDashboard.putNumber("Intake/RPM", getRpm());
         SmartDashboard.putNumber("Intake/Current", intakeMotor.getSupplyCurrent().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Position", pivotMotor.getPosition().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Current", pivotMotor.getSupplyCurrent().getValueAsDouble());

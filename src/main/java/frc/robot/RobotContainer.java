@@ -4,17 +4,20 @@
 
 package frc.robot;
 
+import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants.constDrivetrain;
+import frc.robot.Constants.constIndexer;
+import frc.robot.Constants.constIntake;
+import frc.robot.Constants.constKicker;
 import frc.robot.Constants.constVision;
-import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
+
 import frc.robot.commands.AutoElevationCommand;
 import frc.robot.commands.AutoYawCommand;
 import frc.robot.commands.DriveCommand;
+import frc.robot.commands.PumpIntakeCommand;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.subsystems.flywheel.Flywheel;
@@ -59,8 +62,8 @@ public class RobotContainer {
     indexer = new Indexer();
     turret = new Turret();
 
-    intake.setIntakeRpm(Constants.intakeRpm);
-    indexer.setIndexerRpm(Constants.indexerRpm);
+    intake.setRpm(constIntake.rpm);
+    indexer.setRpm(constIndexer.rpm);
 
     // Configure button bindings and default commands
     configureBindings();
@@ -91,6 +94,21 @@ public class RobotContainer {
 
     turret.setDefaultCommand(
       new AutoYawCommand(turret, drivetrain)
+    );
+
+    driverController.rightTrigger().whileTrue(
+      Commands.runOnce(() -> {
+        kicker.setRpm(constKicker.rpm);
+      })
+    ).whileFalse(
+      Commands.runOnce(() -> {
+        kicker.stop();
+      })
+    );
+
+    // Left trigger: Pump intake while held, retract when released
+    driverController.leftTrigger().whileTrue(
+      new PumpIntakeCommand(intake)
     );
   }
 

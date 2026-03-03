@@ -7,12 +7,10 @@ import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.wpilibj.DriverStation;
 
 public class Constants {
 
-    public static final double intakeRpm = 5500;
-    public static final double indexerRpm = 5500;
+
    
     public static final Pose3d hubGoal = new Pose3d(0, 0, 0, new Rotation3d(0, 0, 0));
 
@@ -167,7 +165,7 @@ public class Constants {
         public static final int intakeMotorId = 41; // 4x = Intake system
         public static final int pivotMotorId = 42;
 
-        public static final double intakeRPM = 5500;
+        public static final double rpm = 5500;
         
         public static final double intakeKp = 0.1;
         public static final double intakeKi = 0.0;
@@ -176,9 +174,17 @@ public class Constants {
         public static final double pivotKp = 0.1;
         public static final double pivotKi = 0.0;   
         public static final double pivotKd = 0.0;
+
+        public static final double deployedPos = 1.0; // Motor rotations for deployed position
+        public static final double retractedPos = 0.0; // Motor rotations for retracted position
+        public static final double pumpPos = 0.5; // Motor rotations for pumped position
+        
+        // Pump timing
+        public static final double pumpDelaySeconds = 0.25; // Time to wait between deployed and pumped positions
     }
 
     public class constIndexer {
+        public static final int rpm = 5500;
         public static final int indexerMotorId = 51; // 5x = Indexer system
         
         public static final double maxIndexerRPM = 3000;
@@ -192,8 +198,7 @@ public class Constants {
     public class constKicker {
         public static final int kickerMotorId = 61; // 6x = Kicker system
         
-        public static final double maxKickerRPM = 4000;
-        public static final double minKickerRPM = 0;
+        public static final double rpm = 5500;
         
         public static final double kP = 0.1;
         public static final double kI = 0.0;
