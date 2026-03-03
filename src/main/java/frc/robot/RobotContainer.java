@@ -13,6 +13,7 @@ import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.robot.commands.AutoElevationCommand;
+import frc.robot.commands.AutoYawCommand;
 import frc.robot.commands.DriveCommand;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.drivetrain.Drivetrain;
@@ -21,6 +22,7 @@ import frc.robot.subsystems.hood.Hood;
 import frc.robot.subsystems.indexer.Indexer;
 import frc.robot.subsystems.intake.Intake;
 import frc.robot.subsystems.kicker.Kicker;
+import frc.robot.subsystems.turret.Turret;
 import frc.robot.subsystems.vision.Vision;
 import frc.robot.subsystems.vision.VisionIOPhotonVision;
 
@@ -33,6 +35,7 @@ public class RobotContainer {
   private final Intake intake;
   private final Kicker kicker;
   private final Indexer indexer;
+  private final Turret turret;
   
 
   // Controllers
@@ -54,6 +57,7 @@ public class RobotContainer {
     intake = new Intake();
     kicker = new Kicker();
     indexer = new Indexer();
+    turret = new Turret();
 
     intake.setIntakeRpm(Constants.intakeRpm);
     indexer.setIndexerRpm(Constants.indexerRpm);
@@ -83,6 +87,10 @@ public class RobotContainer {
     // This will continuously command both hood and flywheel with calculated values
     hood.setDefaultCommand(
       new AutoElevationCommand(hood, flywheel, drivetrain)
+    );
+
+    turret.setDefaultCommand(
+      new AutoYawCommand(turret, drivetrain)
     );
   }
 

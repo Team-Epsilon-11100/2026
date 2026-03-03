@@ -7,11 +7,13 @@ import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.DriverStation;
 
 public class Constants {
 
     public static final double intakeRpm = 5500;
     public static final double indexerRpm = 5500;
+   
     public static final Pose3d hubGoal = new Pose3d(0, 0, 0, new Rotation3d(0, 0, 0));
 
     public class constAutoAim {
@@ -85,7 +87,7 @@ public class Constants {
         // Right camera: Front-right of robot
         // Using simple positions for testing - adjust based on actual robot measurements
         public static final Transform3d mainCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12), 0, Units.inchesToMeters(9.3)),
+                new Translation3d(Units.inchesToMeters(12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(16.158)),
                 new Rotation3d(0, Math.toRadians(-20), 0)); // Look forward-center
 
         public static final Transform3d leftCameraOffset = new Transform3d(
@@ -132,6 +134,33 @@ public class Constants {
         public static double kP = 2.0;
         public static double kI = 0.0;
         public static double kD = 0.0;
+    }
+
+    public class constTurret {
+        public static final int turretMotorId = 33; // 3x = Shooter system
+        
+        // Gearing: motor rotations per turret rotation (output shaft)
+        // Example: 100:1 gear ratio means motor spins 100x for 1 turret rotation
+        public static final double gearRatio = 100.0; // Motor rotations per 1 turret rotation
+        
+        // Turret angle limits (degrees, robot-relative)
+        // 0° = forward, positive = CCW when viewed from above
+        public static final double maxTurretAngleDegrees = 180.0;  // Max CCW
+        public static final double minTurretAngleDegrees = -180.0; // Max CW
+        
+        // Motor position limits (rotations)
+        // Calculate based on angle limits and gear ratio
+        public static final double maxTurretMotorPos = (maxTurretAngleDegrees / 360.0) * gearRatio;
+        public static final double minTurretMotorPos = (minTurretAngleDegrees / 360.0) * gearRatio;
+        
+        // Conversion factor: motor rotations per degree
+        public static final double angleToPosFactor = gearRatio / 360.0;
+        public static final double lookaheadTimeMs = 200;
+
+        // PID gains
+        public static final double kP = 2.0;
+        public static final double kI = 0.0;
+        public static final double kD = 0.0;
     }
 
     public class constIntake {
@@ -187,7 +216,7 @@ public class Constants {
 
     public class constBallisticSolver {
         // Shooter physical constants
-        public static final double shooterHeightMeters = 0.135; // Height of shooter off ground (meters)
+        public static final double shooterHeightMeters = Units.inchesToMeters(17.069); // Height of shooter off ground (meters)
         public static final double gravity = 9.806; // m/s²
         
         // Flywheel configuration
