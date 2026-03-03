@@ -163,6 +163,14 @@ public class BallisticSolver {
         boolean useBand = (cfg.preferSpeedDeltaMps != null && cfg.preferSpeedDeltaMps > 0.0);
         double band = useBand ? cfg.preferSpeedDeltaMps : 0.0;
 
+        // Pre-calculate constants outside loop
+        double dz = goalZMeters - cfg.shooterZMeters;
+        double g_d2 = cfg.g * d * d;
+        
+        // Check speed limits once
+        Double minSpeed = cfg.minSpeedMps;
+        Double maxSpeed = cfg.maxSpeedMps;
+
         for (int pass = 0; pass < (useBand ? 2 : 1); pass++) {
             boolean restrictToBand = useBand && pass == 0;
 
@@ -171,15 +179,27 @@ public class BallisticSolver {
             double bestErr = Double.POSITIVE_INFINITY;
 
             for (double angle = cfg.minAngleDeg; angle <= cfg.maxAngleDeg + 1e-12; angle += cfg.angleStepDeg) {
-                double v = requiredSpeedForAngle(d, goalZMeters, angle, cfg);
-                if (!Double.isFinite(v)) continue;
+                // Inline requiredSpeedForAngle for performance
+                double aRad = Math.toRadians(angle);
+                double cosA = Math.cos(aRad);
+                double tanA = Math.tan(aRad);
 
-                if (cfg.minSpeedMps != null && v < cfg.minSpeedMps) continue;
-                if (cfg.maxSpeedMps != null && v > cfg.maxSpeedMps) continue;
+                double denom = 2.0 * cosA * cosA * (d * tanA - dz);
+                if (denom <= 0.0) continue;
+
+                double v2 = g_d2 / denom;
+                if (!(v2 > 0.0) || !Double.isFinite(v2)) continue;
+                
+                double v = Math.sqrt(v2);
+
+                // Speed limit checks
+                if (minSpeed != null && v < minSpeed) continue;
+                if (maxSpeed != null && v > maxSpeed) continue;
 
                 double err = Math.abs(v - vRefMps);
                 if (restrictToBand && err > band) continue;
 
+                // Update best solution
                 if (err < bestErr - 1e-9 || (Math.abs(err - bestErr) <= 1e-9 && v < bestV)) {
                     bestErr = err;
                     bestV = v;

@@ -23,6 +23,7 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.constVision;
 import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
@@ -101,13 +102,14 @@ public class Vision extends SubsystemBase {
 
     /**
      * Gets the pose of the closest currently-visible AprilTag.
-     * Uses the latest vision pose to calculate distances to all visible tags.
+     * Uses drivetrain odometry to calculate distances to all visible tags.
      * 
-     * @return Pose3d of the closest visible AprilTag, or null if no tags visible or no robot pose
+     * @param robotPose Current robot pose from drivetrain odometry
+     * @return Pose3d of the closest visible AprilTag, or null if no tags visible
      */
-    public static Pose3d getClosestVisibleTag() {
-        // Need robot pose to calculate distances
-        if (latestVisionPose == null || instance == null) {
+    public static Pose3d getClosestVisibleTag(Pose2d robotPose) {
+        // Need valid instance to access camera inputs
+        if (instance == null || robotPose == null) {
             return null;
         }
 
@@ -132,8 +134,8 @@ public class Vision extends SubsystemBase {
                 
                 // Calculate distance from robot to tag (2D floor distance)
                 double distance = Math.hypot(
-                    tagPose.getX() - latestVisionPose.getX(),
-                    tagPose.getY() - latestVisionPose.getY()
+                    tagPose.getX() - robotPose.getX(),
+                    tagPose.getY() - robotPose.getY()
                 );
 
                 // Update closest tag
@@ -148,12 +150,39 @@ public class Vision extends SubsystemBase {
     }
 
     /**
+     * Gets the pose of the closest currently-visible AprilTag.
+     * Uses the latest vision pose to calculate distances to all visible tags.
+     * DEPRECATED: Use getClosestVisibleTag(Pose2d robotPose) instead for more reliable operation.
+     * 
+     * @return Pose3d of the closest visible AprilTag, or null if no tags visible or no robot pose
+     */
+    @Deprecated
+    public static Pose3d getClosestVisibleTag() {
+        // Fallback to vision pose if available
+        if (latestVisionPose == null) {
+            return null;
+        }
+        return getClosestVisibleTag(latestVisionPose);
+    }
+
+    /**
      * Main periodic method:
-     * - Reads camera observations
+     * - Reads camera observations from all cameras
      * - Filters invalid detections
      * - Estimates robot pose from AprilTag observations
-     * - Sends pose corrections to drivetrain odometry
+     * - Sends pose corrections to drivetrain odometry (automatically merged by WPILib)
      * - Stores latest pose for subsystem access
+     * 
+     * Data Merging Strategy:
+     * Each camera independently sends pose measurements to the drivetrain's pose estimator.
+     * WPILib's SwerveDrivePoseEstimator automatically fuses multiple vision measurements
+     * with wheel odometry using a Kalman filter. Each measurement is weighted by its
+     * standard deviation - more confident measurements (lower stddev) have more influence.
+     * 
+     * Multi-camera benefits:
+     * - Redundancy: If one camera loses sight of tags, others may still see them
+     * - Coverage: Multiple viewing angles provide better field coverage
+     * - Accuracy: Independent measurements from different angles improve overall accuracy
      */
     @Override
     public void periodic() {
@@ -165,6 +194,17 @@ public class Vision extends SubsystemBase {
 
         // Track all accepted poses for logging
         List<Pose3d> allAcceptedPoses = new LinkedList<>();
+        
+        // Log camera connection status and tag counts for debugging
+        int totalVisibleTags = 0;
+        for (int i = 0; i < inputs.length; i++) {
+            if (inputs[i].connected) {
+                totalVisibleTags += inputs[i].tagIds.length;
+            }
+        }
+        SmartDashboard.putNumber("Vision/TotalVisibleTags", totalVisibleTags);
+        SmartDashboard.putNumber("Vision/ConnectedCameras", 
+            (int) java.util.Arrays.stream(inputs).filter(input -> input.connected).count());
 
         // Process each camera
         for (int cameraIndex = 0; cameraIndex < io.length; cameraIndex++) {
@@ -196,8 +236,22 @@ public class Vision extends SubsystemBase {
                     observation.pose().getY() < 0.0 ||
                     observation.pose().getY() > constVision.aprilTagLayout.getFieldWidth();
 
+                // Debug: Log why poses are rejected
                 if (rejectPose) {
+                    if (observation.tagCount() == 0) {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "No tags");
+                    } else if (observation.tagCount() == 1 && observation.ambiguity() > constVision.maxAmbiguity) {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
+                            "Ambiguity: " + String.format("%.2f", observation.ambiguity()));
+                    } else if (Math.abs(observation.pose().getZ()) > constVision.maxZError) {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
+                            "Z error: " + String.format("%.2fm", observation.pose().getZ()));
+                    } else {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Out of bounds");
+                    }
                     continue;  // Skip rejected observations
+                } else {
+                    SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Accepted");
                 }
 
                 // ===== POSE ESTIMATION: Convert 3D pose to 2D floor pose =====

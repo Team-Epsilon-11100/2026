@@ -42,9 +42,12 @@ public class RobotContainer {
     // Initialize drivetrain
     drivetrain = TunerConstants.createDrivetrain();
 
+    // Initialize vision with 3 cameras for optimal field coverage
     vision = new Vision(
         drivetrain::addVisionMeasurement,
-        new VisionIOPhotonVision("MainCamera", constVision.mainCameraOffset));
+        new VisionIOPhotonVision(constVision.mainCameraName, constVision.mainCameraOffset),
+        new VisionIOPhotonVision(constVision.leftCameraName, constVision.leftCameraOffset),
+        new VisionIOPhotonVision(constVision.rightCameraName, constVision.rightCameraOffset));
 
     flywheel = new Flywheel();
     hood = new Hood();
@@ -75,8 +78,10 @@ public class RobotContainer {
             vision // Vision subsystem
         ));
     
-    // Button binding: Press A button to auto-aim at closest AprilTag
-    driverController.a().onTrue(
+    // Default command: Continuous auto-aiming based on closest visible AprilTag
+    // Runs automatically, no button press needed
+    // This will continuously command both hood and flywheel with calculated values
+    hood.setDefaultCommand(
       new AutoElevationCommand(hood, flywheel, drivetrain)
     );
   }

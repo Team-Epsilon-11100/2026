@@ -25,7 +25,7 @@ public class Constants {
     
     public class constDrivetrain {
         public static final int joystickPort = 0;
-        public static final double maxAngularRate = 0.4;
+        public static final double maxAngularRate = 0.0;
         public static final double deadbandPercent = 0.1;
 
         // Advanced Drive Control Constants
@@ -37,7 +37,7 @@ public class Constants {
 
         // Speed Control Constants
         public static final double maxSpeed = Units.feetToMeters(15); 
-        public static final double speedModifier = 0.8; 
+        public static final double speedModifier = 0.0; 
 
         // Dimensions
         public static final double chassisWidth = Units.inchesToMeters(27.0);
@@ -45,9 +45,9 @@ public class Constants {
     }
     public class constVision {
         
-        // Basic filtering thresholds
-        public static final double maxAmbiguity = 0.4;
-        public static final double maxZError = 0.3; // Meters
+        // Basic filtering thresholds - RELAXED for better detection
+        public static final double maxAmbiguity = 0.7; // Was 0.4 - too strict! Allow more uncertain single-tag detections
+        public static final double maxZError = 1.0; // Was 0.3m - too strict! Allow ±1m Z error (floor-level uncertainty is normal)
 
         // Tag filtering for auto-alignment
         public static final double maxTagDistance = 5.0; // Maximum distance to consider tags (meters)
@@ -76,29 +76,33 @@ public class Constants {
                 .loadField(AprilTagFields.k2026RebuiltWelded);
 
         // Camera names, must match names configured on coprocessor
-        public static final String camera0Name = "camera_0";
-        public static final String camera1Name = "camera_1";
+        public static final String mainCameraName = "MainCamera";
+        public static final String leftCameraName = "LeftCamera";
+        public static final String rightCameraName = "RightCamera";
 
-        // Left camera (camera_0): Front-left of robot
-        // Right camera (camera_1): Front-right of robot
-        // Using simple positions for testing - 12" forward, ±12" sideways, 9.3" up
+        // Main camera: Center front of robot
+        // Left camera: Front-left of robot
+        // Right camera: Front-right of robot
+        // Using simple positions for testing - adjust based on actual robot measurements
         public static final Transform3d mainCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
-                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-45))); // Look forward-left
+                new Translation3d(Units.inchesToMeters(12), 0, Units.inchesToMeters(9.3)),
+                new Rotation3d(0, Math.toRadians(-20), 0)); // Look forward-center
 
         public static final Transform3d leftCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(-12), Units.inchesToMeters(9.3)),
-                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45))); // Look forward-right
+                new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
+                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-45))); // Look forward-left
 
         public static final Transform3d rightCameraOffset = new Transform3d(
                 new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(-12), Units.inchesToMeters(9.3)),
                 new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45))); // Look forward-right
 
 
-        // Standard deviation multipliers for each camera
+        // Standard deviation multipliers for each camera (lower = more trusted)
+        // Index 0 = Main, 1 = Left, 2 = Right
         public static final double[] cameraStdDevFactors = new double[] {
-                2.0, // Camera 0
-                2.0 // Camera 1
+                1.0, // Main camera (most trusted - center position, best view)
+                1.5, // Left camera (slightly less trusted - side angle)
+                1.5  // Right camera (slightly less trusted - side angle)
         };
 
         // Multipliers to apply for MegaTag 2 observations
@@ -109,7 +113,7 @@ public class Constants {
         public static final int cameraFPS = 30;
         public static final int cameraResolutionWidth = 640;
         public static final int cameraResolutionHeight = 480;
-        public static final double cameraFOVDegrees = 70.0;
+        public static final double cameraFOVDegrees = 90.0;
     }
     
     public class constHood {
@@ -125,7 +129,7 @@ public class Constants {
 
         
 
-        public static double kP = 50.0;
+        public static double kP = 2.0;
         public static double kI = 0.0;
         public static double kD = 0.0;
     }
@@ -168,13 +172,17 @@ public class Constants {
     }
 
     public class constFlywheel {
-        public static final int flywheelMotorId = 33; // 3x = Shooter system (with Hood and Turret)
+        public static final int flywheelMotorId = 32; // 3x = Shooter system
         public static final double maxFlywheelRPM = 6000;
         public static final double minFlywheelRPM = 0;
 
-        public static final double kP = 0.1;
+        public static final double kP = 0.2;
         public static final double kI = 0.0;
         public static final double kD = 0.0;
+        public static final double kS = 0.555; 
+        public static final double kV = 0.127; 
+        public static final double kA = 0.1; 
+
     }
 
     public class constBallisticSolver {
@@ -195,7 +203,8 @@ public class Constants {
         public static final Double minSpeedMps = null; // Minimum exit speed (m/s)
         public static final Double maxSpeedMps = null; // Maximum exit speed (m/s)
         
-        // Angle search resolution
-        public static final double angleStepDeg = 0.05; // Search increment in degrees
+        // Angle search resolution - 0.5° provides fast solving with good accuracy
+        // (0.5° at 20 feet = ~2 inch vertical error, well within mechanical tolerance)
+        public static final double angleStepDeg = 1.0; // Search increment in degrees (OPTIMIZED: was 0.05)
     }
 }
