@@ -39,7 +39,6 @@ public class RobotContainer {
   private final Kicker kicker;
   private final Indexer indexer;
   private final Turret turret;
-  
 
   // Controllers
   private final CommandXboxController driverController = new CommandXboxController(constDrivetrain.joystickPort);
@@ -61,55 +60,50 @@ public class RobotContainer {
     kicker = new Kicker();
     indexer = new Indexer();
     turret = new Turret();
-
+    
+    intake.deploy(); // Start with intake deployed
     intake.setRpm(constIntake.rpm);
-    indexer.setRpm(constIndexer.rpm);
+    indexer.setDutyCycle(constIndexer.dutyCycle);
 
     // Configure button bindings and default commands
     configureBindings();
   }
 
-
-
   private void configureBindings() {
-    // Default command: Advanced drive with heading lock, input curves, and slow mode
+    // Default command: Advanced drive with heading lock, input curves, and slow
+    // mode
     drivetrain.setDefaultCommand(
         new DriveCommand(
             drivetrain,
             () -> -driverController.getLeftY(), // Forward/backward (negated for correct direction)
             () -> -driverController.getLeftX(), // Left/right (negated for correct direction)
             () -> -driverController.getRightX(), // Rotation (negated for correct direction)
-            driverController.leftBumper(), // Slow drive mode (hold left bumper)
+            driverController.b(), // Slow drive mode (hold left bumper)
             constDrivetrain.maxSpeed, // Max speed
             constDrivetrain.maxAngularRate, // Max angular rate
             vision // Vision subsystem
         ));
-    
+
     // Default command: Continuous auto-aiming based on closest visible AprilTag
     // Runs automatically, no button press needed
     // This will continuously command both hood and flywheel with calculated values
     hood.setDefaultCommand(
-      new AutoElevationCommand(hood, flywheel, drivetrain)
-    );
+        new AutoElevationCommand(hood, flywheel, drivetrain));
 
     turret.setDefaultCommand(
-      new AutoYawCommand(turret, drivetrain)
-    );
+        new AutoYawCommand(turret, drivetrain));
 
     driverController.rightTrigger().whileTrue(
-      Commands.runOnce(() -> {
-        kicker.setRpm(constKicker.rpm);
-      })
-    ).whileFalse(
-      Commands.runOnce(() -> {
-        kicker.stop();
-      })
-    );
+        Commands.runOnce(() -> {
+          kicker.setDutyCycle(constKicker.dutyCycle);
+        })).whileFalse(
+            Commands.runOnce(() -> {
+              kicker.stop();
+            }));
 
     // Left trigger: Pump intake while held, retract when released
     driverController.leftTrigger().whileTrue(
-      new PumpIntakeCommand(intake)
-    );
+        new PumpIntakeCommand(intake));
   }
 
   public Command getAutonomousCommand() {

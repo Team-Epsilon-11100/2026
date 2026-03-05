@@ -1,7 +1,7 @@
 package frc.robot.subsystems.indexer;
 
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
+import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -9,7 +9,7 @@ import frc.robot.Constants.constIndexer;
 
 public class Indexer extends SubsystemBase {
     private final TalonFX indexerMotor;
-    private final MotionMagicVelocityVoltage velocityControl;
+    private final DutyCycleOut indexerOut;
     
     public Indexer() {
         indexerMotor = new TalonFX(constIndexer.indexerMotorId);
@@ -32,40 +32,28 @@ public class Indexer extends SubsystemBase {
         motionMagicConfigs.MotionMagicExpo_kA = 0;
 
         indexerMotor.getConfigurator().apply(motorConfigs);
-        velocityControl = new MotionMagicVelocityVoltage(0).withSlot(2);
+        indexerOut = new DutyCycleOut(0);
     }
 
     /**
-     * Set the indexer motor RPM.
+     * Set the indexer motor duty cycle.
      * 
-     * @param rpm Target RPM (positive = forward, negative = reverse)
+     * @param dutyCycle Target duty cycle (-1.0 to 1.0)
      */
-    public void setRpm(double rpm) {
-        // Convert RPM to rotations per second (RPS)
-        indexerMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
-    }
-
-    /**
-     * Get the current indexer motor RPM.
-     * 
-     * @return Current RPM
-     */
-    public double getRpm() {
-        return indexerMotor.getVelocity().getValueAsDouble() * 60.0;
+    public void setDutyCycle(double dutyCycle) {
+        indexerMotor.setControl(indexerOut.withOutput(dutyCycle));
     }
 
     /**
      * Stop the indexer motor.
      */
     public void stop() {
-        setRpm(0);
+        setDutyCycle(0);
     }
 
     @Override
     public void periodic() {
         // Log indexer status to SmartDashboard
-        SmartDashboard.putNumber("Indexer/RPM", getRpm());
         SmartDashboard.putNumber("Indexer/Current", indexerMotor.getSupplyCurrent().getValueAsDouble());
     }
 }
-

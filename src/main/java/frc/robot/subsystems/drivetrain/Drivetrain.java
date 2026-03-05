@@ -28,6 +28,7 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import org.littletonrobotics.junction.Logger;
 
 import frc.robot.generated.TunerConstants.TunerSwerveDrivetrain;
+import frc.robot.lib.SwerveTelemetry;
 import frc.robot.Constants.constDrivetrain;
 
 import frc.robot.subsystems.vision.Vision;
@@ -66,7 +67,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     private final SwerveRequest.SysIdSwerveTranslation m_translationCharacterization = new SwerveRequest.SysIdSwerveTranslation();
     private final SwerveRequest.SysIdSwerveSteerGains m_steerCharacterization = new SwerveRequest.SysIdSwerveSteerGains();
     private final SwerveRequest.SysIdSwerveRotation m_rotationCharacterization = new SwerveRequest.SysIdSwerveRotation();
-
+    private final SwerveTelemetry telemetry = new SwerveTelemetry();
     /*
      * SysId routine for characterizing translation. This is used to find PID gains
      * for the drive motors.
@@ -256,6 +257,8 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         updateInputs(inputs);
         Logger.processInputs("Drive", inputs);
 
+       
+
         /*
          * Periodically try to apply the operator perspective.
          * If we haven't applied the operator perspective before, then we should apply
@@ -298,6 +301,11 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
 
         // Essential diagnostics only
         inputs.odometryFrequency = 1.0 / state.OdometryPeriod;
+        
+        telemetry.rotation = state.Pose.getRotation();
+        telemetry.currentSpeeds = state.Speeds;
+        telemetry.currentStates = state.ModuleStates;
+        telemetry.desiredStates = state.ModuleTargets;
     }
 
     private void startSimThread() {
@@ -366,7 +374,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     public Pose2d getPose() {
         return getState().Pose;
     }
-    
+
     /**
      * Gets the current field-relative velocities of the robot.
      *
@@ -375,9 +383,9 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     public double[] getFieldVelocities() {
         var state = getState();
         return new double[] {
-            state.Speeds.vxMetersPerSecond,
-            state.Speeds.vyMetersPerSecond,
-            state.Speeds.omegaRadiansPerSecond
+                state.Speeds.vxMetersPerSecond,
+                state.Speeds.vyMetersPerSecond,
+                state.Speeds.omegaRadiansPerSecond
         };
     }
 
@@ -399,7 +407,6 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
             System.out.println("snapToAngle: null parameters provided");
             return new SwerveRequest.Idle();
         }
-
 
         var currentRotation = currentPose.getRotation();
         var rotationError = targetAngle.minus(currentRotation).getRadians();

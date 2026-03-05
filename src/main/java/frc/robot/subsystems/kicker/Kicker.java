@@ -1,6 +1,7 @@
 package frc.robot.subsystems.kicker;
 
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -9,7 +10,7 @@ import frc.robot.Constants.constKicker;
 
 public class Kicker extends SubsystemBase {
     private final TalonFX kickerMotor;
-    private final MotionMagicVelocityVoltage velocityControl;
+    private final DutyCycleOut kickerOut;
     
     public Kicker() {
         kickerMotor = new TalonFX(constKicker.kickerMotorId);
@@ -32,7 +33,7 @@ public class Kicker extends SubsystemBase {
         motionMagicConfigs.MotionMagicExpo_kA = 0;
 
         kickerMotor.getConfigurator().apply(motorConfigs);
-        velocityControl = new MotionMagicVelocityVoltage(0).withSlot(2);
+        kickerOut = new DutyCycleOut(0);
     }
 
     /**
@@ -40,31 +41,24 @@ public class Kicker extends SubsystemBase {
      * 
      * @param rpm Target RPM (positive = forward, negative = reverse)
      */
-    public void setRpm(double rpm) {
+    public void setDutyCycle(double dutyCycle) {
         // Convert RPM to rotations per second (RPS)
-        kickerMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
+        kickerMotor.setControl(kickerOut.withOutput(dutyCycle));
     }
 
-    /**
-     * Get the current kicker motor RPM.
-     * 
-     * @return Current RPM
-     */
-    public double getRpm() {
-        return kickerMotor.getVelocity().getValueAsDouble() * 60.0;
-    }
+
 
     /**
      * Stop the kicker motor.
      */
     public void stop() {
-        setRpm(0);
+        setDutyCycle(0);
     }
 
     @Override
     public void periodic() {
         // Log kicker status to SmartDashboard
-        SmartDashboard.putNumber("Kicker/RPM", getRpm());
+       
         SmartDashboard.putNumber("Kicker/Current", kickerMotor.getSupplyCurrent().getValueAsDouble());
     }
 }

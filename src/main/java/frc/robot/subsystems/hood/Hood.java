@@ -33,7 +33,7 @@ public class Hood extends SubsystemBase {
         motionMagicConfigs.MotionMagicExpo_kV = 0; // kV is around 0.12 V/rps
         motionMagicConfigs.MotionMagicExpo_kA = 0; // Use a slower kA of 0.1 V/(rps/s)
 
-        // ⚠️ CRITICAL: Software limits to prevent mechanical damage
+        // CRITICAL: Software limits to prevent mechanical damage
         var softwareLimitConfigs = hoodMotorConfigs.SoftwareLimitSwitch;
         softwareLimitConfigs.ForwardSoftLimitEnable = true;
         softwareLimitConfigs.ForwardSoftLimitThreshold = constHood.maxHoodMotorPos; // 12.5 rotations max

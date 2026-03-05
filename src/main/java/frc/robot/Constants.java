@@ -32,11 +32,11 @@ public class Constants {
         public static final double deadband = 0.1;
         public static final double halfSpeedFactor = 0.35;
         public static final double rotationActiveTimeout = 0.1; // seconds
-        public static final double rotationActiveThresholdDegrees = 5.0; // degrees
+        public static final double rotationActiveThresholdDegrees = 3.0; // degrees
         public static final double inputCurve = 3.0; // Input exponent (1.0 = linear, 2.0 = squared, etc.)
 
         // Speed Control Constants
-        public static final double maxSpeed = Units.feetToMeters(15); 
+        public static final double maxSpeed = Units.feetToMeters(14.5); 
         public static final double speedModifier = 0.0; 
 
         // Dimensions
@@ -135,7 +135,7 @@ public class Constants {
     }
 
     public class constTurret {
-        public static final int turretMotorId = 33; // 3x = Shooter system
+        public static final int turretMotorId = 0; // 3x = Shooter system
         
         // Gearing: motor rotations per turret rotation (output shaft)
         // Example: 100:1 gear ratio means motor spins 100x for 1 turret rotation
@@ -184,11 +184,9 @@ public class Constants {
     }
 
     public class constIndexer {
-        public static final int rpm = 5500;
         public static final int indexerMotorId = 51; // 5x = Indexer system
         
-        public static final double maxIndexerRPM = 3000;
-        public static final double minIndexerRPM = 0;
+        public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
         
         public static final double kP = 0.1;
         public static final double kI = 0.0;
@@ -198,7 +196,7 @@ public class Constants {
     public class constKicker {
         public static final int kickerMotorId = 61; // 6x = Kicker system
         
-        public static final double rpm = 5500;
+        public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
         
         public static final double kP = 0.1;
         public static final double kI = 0.0;
@@ -221,24 +219,24 @@ public class Constants {
 
     public class constBallisticSolver {
         // Shooter physical constants
-        public static final double shooterHeightMeters = Units.inchesToMeters(17.069); // Height of shooter off ground (meters)
-        public static final double gravity = 9.806; // m/s²
+        public static final double shooterHeightMeters = Units.inchesToMeters(41.25); // Height of shooter off ground (meters)
+        public static final double gravity = 9.806; // m/s^2
         
         // Flywheel configuration
         public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
         public static final double exitVelocityFactor = 0.85; // Tune this: ball exit speed / wheel surface speed
-        public static final double gearRatioMotorToWheel = 1.0; // Motor RPM / Wheel RPM (adjust for your robot)
-        
-        // Preferred shooting parameters
-        public static final double preferredFlywheelRPM = 5500; // Target RPM for consistent shots
-        public static final double preferredSpeedDeltaMps = 0.25; // Allow ±0.25 m/s from preferred speed
-        
-        // Speed limits (optional - set to null if no limits)
-        public static final Double minSpeedMps = null; // Minimum exit speed (m/s)
-        public static final Double maxSpeedMps = null; // Maximum exit speed (m/s)
-        
-        // Angle search resolution - 0.5° provides fast solving with good accuracy
-        // (0.5° at 20 feet = ~2 inch vertical error, well within mechanical tolerance)
-        public static final double angleStepDeg = 1.0; // Search increment in degrees (OPTIMIZED: was 0.05)
+        public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
+        public static final double speedMod = 1.0; // Fine-tune multiplier applied after solver
+
+        // RPM sweep constraints
+        public static final double minMotorRPM = 1000.0; // Don't sweep below this - ball won't reach target
+        public static final double maxMotorRPM = constFlywheel.maxFlywheelRPM; // Motor RPM ceiling (6000)
+        public static final double rpmStep = 50.0; // 50 RPM steps = ~100 iterations max, precise enough
+
+        // Impact angle targeting (degrees, negative = descending)
+        // Goal: ball lands from above, descending at ~60 deg from horizontal
+        public static final double desiredImpactAngleDeg = -60.0; // Ideal descent angle
+        public static final double impactBandMinDeg = -70.0;      // Steepest acceptable (more negative)
+        public static final double impactBandMaxDeg = -45.0;      // Shallowest acceptable (less negative)
     }
 }

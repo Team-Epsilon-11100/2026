@@ -33,7 +33,7 @@ public class Turret extends SubsystemBase {
         motionMagicConfigs.MotionMagicExpo_kV = 0;
         motionMagicConfigs.MotionMagicExpo_kA = 0;
 
-        // ⚠️ CRITICAL: Software limits to prevent cable wrap
+        // CRITICAL: Software limits to prevent cable wrap
         var softwareLimitConfigs = turretMotorConfigs.SoftwareLimitSwitch;
         softwareLimitConfigs.ForwardSoftLimitEnable = true;
         softwareLimitConfigs.ForwardSoftLimitThreshold = constTurret.maxTurretMotorPos;

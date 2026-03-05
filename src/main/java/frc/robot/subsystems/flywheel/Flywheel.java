@@ -41,11 +41,11 @@ public class Flywheel extends SubsystemBase {
 
     public void setFlywheelRpm(double rpm) {
         // Convert RPM to RPS for motor control
-        flywheelMotor.setControl(flywheelPID.withVelocity(rpm / 60.0));
+        flywheelMotor.setControl(flywheelPID.withVelocity(-rpm / 60.0));
     }
 
     public double getFlywheelRpm() {
-        return flywheelMotor.getVelocity().getValueAsDouble() * 60.0;
+        return -flywheelMotor.getVelocity().getValueAsDouble() * 60.0;
     }
     
     public void stop() {

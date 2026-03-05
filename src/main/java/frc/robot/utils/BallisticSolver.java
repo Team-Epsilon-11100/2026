@@ -3,267 +3,231 @@ package frc.robot.utils;
 import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constHood;
 
+/**
+ * BallisticSolver (RPM-first, LOWEST RPM that works, impact-angle prioritized)
+ *
+ * GUARANTEED selection order:
+ *  1) RPM is the OUTER LOOP. We sweep motor RPM low -> high.
+ *  2) For each fixed RPM, we compute feasible launch angle(s) via quadratic formula.
+ *  3) For that RPM, we choose the angle that BEST matches the desired impact angle.
+ *  4) We return the FIRST RPM that yields an acceptable impact-angle solution.
+ *
+ * Impact-angle notes:
+ *  - impactAngleDeg is the velocity angle at the target (negative = descending).
+ *  - "60 deg descent" = impactAngleDeg = -60.
+ *
+ * Physics model: ideal projectile (no drag, no Magnus).
+ */
 public class BallisticSolver {
 
+    // -----------------------------------------------------------------------
+    // Config
+    // -----------------------------------------------------------------------
     public static class Config {
-        public double shooterZMeters = constBallisticSolver.shooterHeightMeters;
-        public double g = constBallisticSolver.gravity;
+        // Physics / geometry
+        public double shooterZMeters           = constBallisticSolver.shooterHeightMeters;
+        public double g                        = constBallisticSolver.gravity;
 
-        public double minAngleDeg = constHood.minHoodAngleDegrees;
-        public double maxAngleDeg = constHood.maxHoodAngleDegrees;
-        public double angleStepDeg = constBallisticSolver.angleStepDeg;
+        // Hood angle limits
+        public double minAngleDeg              = constHood.minHoodAngleDegrees;
+        public double maxAngleDeg              = constHood.maxHoodAngleDegrees;
 
-        public Double minSpeedMps = constBallisticSolver.minSpeedMps;
-        public Double maxSpeedMps = constBallisticSolver.maxSpeedMps;
+        // Flywheel model
+        public double flywheelDiameterMeters   = constBallisticSolver.flywheelDiameterMeters;
+        public double exitVelocityFactor       = constBallisticSolver.exitVelocityFactor;
+        public double gearRatioMotorToWheel    = constBallisticSolver.gearRatioMotorToWheel;
 
-        public Double preferSpeedDeltaMps = constBallisticSolver.preferredSpeedDeltaMps;
+        // RPM sweep
+        public double minMotorRpm              = constBallisticSolver.minMotorRPM;
+        public double maxMotorRpm              = constBallisticSolver.maxMotorRPM;
+        public double rpmStep                  = constBallisticSolver.rpmStep;
 
-        // --- Flywheel / drivetrain conversion ---
-        public double flywheelDiameterMeters = constBallisticSolver.flywheelDiameterMeters;
-        /**
-         * k = (ball exit speed) / (wheel surface speed)
-         * so wheelSurfaceSpeed = exitSpeed / k
-         * Start with ~0.85 and tune from real shots.
-         */
-        public double exitVelocityFactor = constBallisticSolver.exitVelocityFactor;
+        // Impact-angle targeting
+        public boolean requireDescendingAtTarget = true;
+        public double desiredImpactAngleDeg    = constBallisticSolver.desiredImpactAngleDeg;
+        public double impactBandMinDeg         = constBallisticSolver.impactBandMinDeg;
+        public double impactBandMaxDeg         = constBallisticSolver.impactBandMaxDeg;
 
-        /**
-         * gearRatioMotorToWheel = motorRPM / wheelRPM
-         * Example: 2:1 reduction (motor spins 2x wheel) => 2.0
-         * Example: 1:2 overdrive (motor spins half of wheel) => 0.5
-         */
-        public double gearRatioMotorToWheel = constBallisticSolver.gearRatioMotorToWheel;
+        // Optional obstacle clearance (set both to 0 to disable)
+        public double clearanceZMeters         = 0.0;
+        public double clearanceXMeters         = 0.0;
     }
 
-    /**
-     * Ballistic solution result with all calculated outputs.
-     * Use .valid() to check if solution exists, then access other fields.
-     * 
-     * Example:
-     *   Solution s = BallisticSolver.solve(...);
-     *   if (s.valid()) {
-     *       double angle = s.angleDeg();
-     *       double rpm = s.motorRpm();
-     *   }
-     */
+    // -----------------------------------------------------------------------
+    // Solution record
+    // -----------------------------------------------------------------------
     public record Solution(
         boolean valid,
-        double angleDeg,
-        double exitSpeedMps,
-        double wheelRpm,
-        double motorRpm,
-        double timeSec,
-        String reason
+        double  launchAngleDeg,
+        double  impactAngleDeg,
+        double  exitSpeedMps,
+        double  wheelRpm,
+        double  motorRpm,
+        double  timeSec,
+        String  reason
     ) {
-        /**
-         * Create a valid solution with all calculated values.
-         */
-        public static Solution ok(double angleDeg, double exitSpeedMps, double wheelRpm, double motorRpm, double timeSec) {
-            return new Solution(true, angleDeg, exitSpeedMps, wheelRpm, motorRpm, timeSec, "OK");
-        }
-
-        /**
-         * Create an invalid solution with a reason string.
-         */
+        /** Convenience factory for an invalid (no-solution) result. */
         public static Solution invalid(String reason) {
-            return new Solution(false, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, reason);
-        }
-
-        /**
-         * Check if this is a valid solution (alternative to checking .valid() directly).
-         */
-        public boolean isValid() {
-            return valid;
-        }
-
-        /**
-         * Get angle in radians (converted from degrees).
-         */
-        public double angleRad() {
-            return Math.toRadians(angleDeg);
-        }
-
-        /**
-         * Get a human-readable description of the solution.
-         */
-        @Override
-        public String toString() {
-            if (!valid) return "No solution: " + reason;
-            return String.format(
-                    "angle=%.2f deg, exitV=%.2f m/s, wheel=%.0f rpm, motor=%.0f rpm, time=%.3f s",
-                    angleDeg, exitSpeedMps, wheelRpm, motorRpm, timeSec
-            );
+            return new Solution(false, 0, 0, 0, 0, 0, 0, reason);
         }
     }
 
-    /** Convert desired BALL exit speed to wheel RPM for a given flywheel diameter & k factor. */
-    public static double exitSpeedToWheelRpm(double exitSpeedMps, Config cfg) {
-        double r = cfg.flywheelDiameterMeters / 2.0;
-        double k = cfg.exitVelocityFactor;
+    // -----------------------------------------------------------------------
+    // Primary entry point
+    // -----------------------------------------------------------------------
+    /**
+     * Finds the LOWEST motor RPM at which a valid launch exists whose impact
+     * angle falls inside [impactBandMinDeg, impactBandMaxDeg].
+     *
+     * Two-pass strategy:
+     *   Pass 0 - strict:  impact must be inside the configured band.
+     *   Pass 1 - relaxed: accept any descending shot if pass 0 found nothing.
+     *
+     * @param xMeters     horizontal X displacement to goal (metres)
+     * @param yMeters     horizontal Y displacement to goal (metres)
+     * @param goalZMeters absolute height of target (metres above floor)
+     * @param cfg         solver config (create once, reuse every cycle)
+     * @return best Solution, or Solution.invalid(...) if none found
+     */
+    public static Solution solveLowestRpmPreferImpact(
+            double xMeters, double yMeters, double goalZMeters, Config cfg) {
 
-        if (!(r > 0.0) || !(k > 0.0)) return Double.NaN;
+        double range  = Math.hypot(xMeters, yMeters);
+        double deltaZ = goalZMeters - cfg.shooterZMeters;
 
-        // wheel surface speed needed:
-        double wheelSurfaceSpeed = exitSpeedMps / k;
+        if (range <= 0.0) {
+            return Solution.invalid("range is zero");
+        }
 
-        // wheelRPM = (v / (2πr)) * 60
-        return (wheelSurfaceSpeed / (2.0 * Math.PI * r)) * 60.0;
-    }
+        Solution bestRelaxed = null;
 
-    /** Convert wheel RPM to motor RPM using motorRPM/wheelRPM ratio. */
-    public static double wheelRpmToMotorRpm(double wheelRpm, Config cfg) {
-        return wheelRpm * cfg.gearRatioMotorToWheel;
-    }
+        for (int pass = 0; pass <= 1; pass++) {
+            boolean strictBand = (pass == 0);
 
-    /** Convert motor RPM to exit speed (m/s) - inverse of the above conversions. */
-    public static double motorRpmToExitSpeed(double motorRpm, Config cfg) {
-        // motorRPM → wheelRPM
-        double wheelRpm = motorRpm / cfg.gearRatioMotorToWheel;
-        
-        // wheelRPM → wheel surface speed (m/s)
-        double r = cfg.flywheelDiameterMeters / 2.0;
-        double wheelSurfaceSpeed = (wheelRpm / 60.0) * (2.0 * Math.PI * r);
-        
-        // wheel surface speed → exit speed
-        double exitSpeed = wheelSurfaceSpeed * cfg.exitVelocityFactor;
-        
-        return exitSpeed;
-    }
+            for (double rpm = cfg.minMotorRpm; rpm <= cfg.maxMotorRpm + 1e-6; rpm += cfg.rpmStep) {
+                double exitSpeed = motorRpmToExitSpeed(rpm, cfg);
+                if (exitSpeed <= 0) continue;
 
-    public static double requiredSpeedForAngle(double dMeters, double goalZMeters, double angleDeg, Config cfg) {
-        double d = dMeters;
-        if (d <= 1e-9) return Double.NaN;
+                double[] angles = launchAnglesForFixedSpeed(range, deltaZ, exitSpeed, cfg.g);
+                if (angles == null) continue;
 
-        double dz = goalZMeters - cfg.shooterZMeters;
-        double a = Math.toRadians(angleDeg);
+                // Sort ascending: always try the LOWER launch angle first.
+                // A flatter (lower) launch angle produces a steeper descent arc at the target,
+                // which is what we want. The quadratic gives no ordering guarantee.
+                if (angles.length == 2 && angles[0] > angles[1]) {
+                    double tmp = angles[0]; angles[0] = angles[1]; angles[1] = tmp;
+                }
 
-        double cosA = Math.cos(a);
-        double tanA = Math.tan(a);
+                for (double angleDeg : angles) {
+                    if (angleDeg < cfg.minAngleDeg || angleDeg > cfg.maxAngleDeg) continue;
 
-        double denom = 2.0 * cosA * cosA * (d * tanA - dz);
-        if (denom <= 0.0) return Double.NaN;
+                    double angleRad = Math.toRadians(angleDeg);
+                    double vx       = exitSpeed * Math.cos(angleRad);
+                    double vy       = exitSpeed * Math.sin(angleRad);
+                    if (vx <= 1e-9) continue; // Near-vertical launch - can't reach horizontal range
+                    double tFlight  = range / vx;
 
-        double v2 = cfg.g * d * d / denom;
-        if (!(v2 > 0.0) || !Double.isFinite(v2)) return Double.NaN;
+                    // Optional clearance gate
+                    if (cfg.clearanceXMeters > 0 && cfg.clearanceZMeters > 0) {
+                        double tClear       = cfg.clearanceXMeters / vx;
+                        double zAtClearance = cfg.shooterZMeters
+                                + vy * tClear
+                                - 0.5 * cfg.g * tClear * tClear;
+                        if (zAtClearance < cfg.clearanceZMeters) continue;
+                    }
 
-        return Math.sqrt(v2);
-    }
+                    // Impact angle = atan2(vy_final, vx)
+                    double vyFinal     = vy - cfg.g * tFlight;
+                    double impactAngle = Math.toDegrees(Math.atan2(vyFinal, vx));
 
-    public static Solution solvePreferConstantSpeed(
-            double xMeters,
-            double yMeters,
-            double goalZMeters,
-            double vRefMps,
-            Config cfg
-    ) {
-        double d = Math.hypot(xMeters, yMeters);
-        if (d <= 1e-6) return Solution.invalid("Horizontal distance ~0; expected non-zero X/Y distance.");
-        if (!Double.isFinite(vRefMps) || vRefMps <= 0.0) return Solution.invalid("vRefMps must be positive and finite.");
+                    if (cfg.requireDescendingAtTarget && impactAngle >= 0) continue;
 
-        boolean useBand = (cfg.preferSpeedDeltaMps != null && cfg.preferSpeedDeltaMps > 0.0);
-        double band = useBand ? cfg.preferSpeedDeltaMps : 0.0;
-
-        // Pre-calculate constants outside loop
-        double dz = goalZMeters - cfg.shooterZMeters;
-        double g_d2 = cfg.g * d * d;
-        
-        // Check speed limits once
-        Double minSpeed = cfg.minSpeedMps;
-        Double maxSpeed = cfg.maxSpeedMps;
-
-        for (int pass = 0; pass < (useBand ? 2 : 1); pass++) {
-            boolean restrictToBand = useBand && pass == 0;
-
-            double bestAngle = Double.NaN;
-            double bestV = Double.POSITIVE_INFINITY;
-            double bestErr = Double.POSITIVE_INFINITY;
-
-            for (double angle = cfg.minAngleDeg; angle <= cfg.maxAngleDeg + 1e-12; angle += cfg.angleStepDeg) {
-                // Inline requiredSpeedForAngle for performance
-                double aRad = Math.toRadians(angle);
-                double cosA = Math.cos(aRad);
-                double tanA = Math.tan(aRad);
-
-                double denom = 2.0 * cosA * cosA * (d * tanA - dz);
-                if (denom <= 0.0) continue;
-
-                double v2 = g_d2 / denom;
-                if (!(v2 > 0.0) || !Double.isFinite(v2)) continue;
-                
-                double v = Math.sqrt(v2);
-
-                // Speed limit checks
-                if (minSpeed != null && v < minSpeed) continue;
-                if (maxSpeed != null && v > maxSpeed) continue;
-
-                double err = Math.abs(v - vRefMps);
-                if (restrictToBand && err > band) continue;
-
-                // Update best solution
-                if (err < bestErr - 1e-9 || (Math.abs(err - bestErr) <= 1e-9 && v < bestV)) {
-                    bestErr = err;
-                    bestV = v;
-                    bestAngle = angle;
+                    if (strictBand) {
+                        if (impactAngle < cfg.impactBandMinDeg || impactAngle > cfg.impactBandMaxDeg) continue;
+                        // Lowest RPM with in-band impact angle - return immediately
+                        double wheelRpm = exitSpeedToWheelRpm(exitSpeed, cfg);
+                        double motorRpm = wheelRpmToMotorRpm(wheelRpm, cfg);
+                        return new Solution(true, angleDeg, impactAngle,
+                                exitSpeed, wheelRpm, motorRpm, tFlight, "ok");
+                    } else {
+                        // Relaxed pass: track the angle closest to desiredImpactAngleDeg
+                        if (bestRelaxed == null
+                                || impactScore(impactAngle, cfg) > impactScore(bestRelaxed.impactAngleDeg(), cfg)) {
+                            double wheelRpm = exitSpeedToWheelRpm(exitSpeed, cfg);
+                            double motorRpm = wheelRpmToMotorRpm(wheelRpm, cfg);
+                            bestRelaxed = new Solution(true, angleDeg, impactAngle,
+                                    exitSpeed, wheelRpm, motorRpm, tFlight, "relaxed");
+                        }
+                    }
                 }
             }
 
-            if (Double.isFinite(bestV)) {
-                double aRad = Math.toRadians(bestAngle);
-                double vx = bestV * Math.cos(aRad);
-                if (vx <= 1e-9) return Solution.invalid("Numerical issue: horizontal velocity ~0.");
-                double t = d / vx;
-
-                double wheelRpm = exitSpeedToWheelRpm(bestV, cfg);
-                double motorRpm = wheelRpmToMotorRpm(wheelRpm, cfg);
-
-                return Solution.ok(bestAngle, bestV, wheelRpm, motorRpm, t);
-            }
+            if (pass == 0 && bestRelaxed != null) break;
         }
 
-        return Solution.invalid("No reachable solution within angle/speed limits.");
+        if (bestRelaxed != null) return bestRelaxed;
+        return Solution.invalid("no trajectory found in RPM/angle range");
     }
+
+    // -----------------------------------------------------------------------
+    // Physics helpers
+    // -----------------------------------------------------------------------
 
     /**
-     * Solves ballistic trajectory preferring a constant motor RPM.
-     * This is a convenience overload that converts RPM to m/s internally.
-     * 
-     * @param xMeters Horizontal X distance to target (meters)
-     * @param yMeters Horizontal Y distance to target (meters)
-     * @param goalZMeters Target height (meters, absolute)
-     * @param preferredMotorRpm Desired motor RPM for consistent shots
-     * @param cfg Configuration with robot physical constants
-     * @return Solution with angle, speeds, and RPMs
+     * Exact analytical launch angles that hit (range, deltaZ) at fixed speed v0.
+     *
+     * Projectile quadratic (u = tan(launchAngle)):
+     *   A*u^2 + B*u + C = 0
+     *   A =  g*R^2 / (2*v0^2)
+     *   B = -R
+     *   C =  deltaZ + A
+     *
+     * @return 1 or 2 angles in degrees, or null if discriminant < 0
      */
-    public static Solution solvePreferConstantRpm(
-            double xMeters,
-            double yMeters,
-            double goalZMeters,
-            double preferredMotorRpm,
-            Config cfg
-    ) {
-        // Convert preferred motor RPM to exit speed (m/s)
-        double vRefMps = motorRpmToExitSpeed(preferredMotorRpm, cfg);
-        
-        if (!Double.isFinite(vRefMps) || vRefMps <= 0.0) {
-            return Solution.invalid("Invalid motor RPM or config parameters.");
-        }
-        
-        // Call the existing method with converted speed
-        return solvePreferConstantSpeed(xMeters, yMeters, goalZMeters, vRefMps, cfg);
+    private static double[] launchAnglesForFixedSpeed(
+            double range, double deltaZ, double v0, double g) {
+        double v2   = v0 * v0;
+        double A    = g * range * range / (2.0 * v2);
+        double B    = -range;
+        double C    = deltaZ + A;
+        double disc = B * B - 4.0 * A * C;
+
+        if (disc < 0) return null;
+
+        double sqrtDisc = Math.sqrt(disc);
+        double u1 = (-B + sqrtDisc) / (2.0 * A);
+        double u2 = (-B - sqrtDisc) / (2.0 * A);
+        double a1 = Math.toDegrees(Math.atan(u1));
+        double a2 = Math.toDegrees(Math.atan(u2));
+
+        if (Math.abs(disc) < 1e-9) return new double[]{a1};
+        return new double[]{a1, a2};
     }
 
-    // Example usage
-    public static void main(String[] args) {
-        Config cfg = new Config();
-        cfg.shooterZMeters = 0.135;
-        cfg.flywheelDiameterMeters = 0.1016; // 4"
-        cfg.exitVelocityFactor = 0.85;       // tune this
-        cfg.gearRatioMotorToWheel = 2.0;     // example: 2:1 reduction
+    /** Higher score = impact angle is closer to desiredImpactAngleDeg. */
+    private static double impactScore(double impactAngleDeg, Config cfg) {
+        return -Math.abs(impactAngleDeg - cfg.desiredImpactAngleDeg);
+    }
 
-        double goalZ = 1.8288;
-        double vRef = 9.1;
+    // -----------------------------------------------------------------------
+    // Unit conversions (public for testing / dashboard use)
+    // -----------------------------------------------------------------------
 
-        Solution s = solvePreferConstantSpeed(6.5, 0.0, goalZ, vRef, cfg);
-        System.out.println(s);
+    /** Motor RPM -> ball exit speed (m/s). */
+    public static double motorRpmToExitSpeed(double motorRpm, Config cfg) {
+        double wheelRpm          = motorRpm / cfg.gearRatioMotorToWheel;
+        double wheelSurfaceSpeed = (wheelRpm / 60.0) * (Math.PI * cfg.flywheelDiameterMeters);
+        return wheelSurfaceSpeed * cfg.exitVelocityFactor;
+    }
+
+    /** Ball exit speed (m/s) -> wheel RPM. */
+    public static double exitSpeedToWheelRpm(double exitSpeedMps, Config cfg) {
+        double wheelSurfaceSpeed = exitSpeedMps / cfg.exitVelocityFactor;
+        return (wheelSurfaceSpeed / (Math.PI * cfg.flywheelDiameterMeters)) * 60.0;
+    }
+
+    /** Wheel RPM -> motor RPM. */
+    public static double wheelRpmToMotorRpm(double wheelRpm, Config cfg) {
+        return wheelRpm * cfg.gearRatioMotorToWheel;
     }
 }
