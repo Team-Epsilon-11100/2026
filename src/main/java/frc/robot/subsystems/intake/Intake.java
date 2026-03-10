@@ -1,8 +1,8 @@
 package frc.robot.subsystems.intake;
 
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.MotionMagicExpoVoltage;
-import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -11,33 +11,17 @@ import frc.robot.Constants.constIntake;
 public class Intake extends SubsystemBase {
     private final TalonFX intakeMotor;
     private final TalonFX pivotMotor;
-    private final MotionMagicVelocityVoltage velocityControl;
+    private final DutyCycleOut intakeOut;
     private final MotionMagicExpoVoltage pivotPositionControl;
 
     public Intake() {
         intakeMotor = new TalonFX(constIntake.intakeMotorId);
         pivotMotor = new TalonFX(constIntake.pivotMotorId);
 
-        // Configure intake motor for velocity control
+        // Configure intake motor for duty cycle control
         var intakeConfigs = new TalonFXConfiguration();
-        
-        // Set PID gains for velocity control (Slot 1)
-        var slot1Configs = intakeConfigs.Slot1;
-        slot1Configs.kS = 0; // Static friction compensation
-        slot1Configs.kV = 0; // Velocity feedforward
-        slot1Configs.kA = 0; // Acceleration feedforward
-        slot1Configs.kP = constIntake.intakeKp;
-        slot1Configs.kI = constIntake.intakeKi;
-        slot1Configs.kD = constIntake.intakeKd;
-
-        // Set Motion Magic settings
-        var motionMagicConfigs = intakeConfigs.MotionMagic;
-        motionMagicConfigs.MotionMagicCruiseVelocity = 0; // Unlimited cruise velocity
-        motionMagicConfigs.MotionMagicExpo_kV = 0;
-        motionMagicConfigs.MotionMagicExpo_kA = 0;
-
         intakeMotor.getConfigurator().apply(intakeConfigs);
-        velocityControl = new MotionMagicVelocityVoltage(0).withSlot(1);
+        intakeOut = new DutyCycleOut(0);
         pivotPositionControl = new MotionMagicExpoVoltage(0);
 
         // Configure pivot motor (position control can be added later if needed)
@@ -51,29 +35,19 @@ public class Intake extends SubsystemBase {
     }
 
     /**
-     * Set the intake motor RPM.
-     * 
-     * @param rpm Target RPM (positive = intake, negative = eject)
+     * Set the intake motor duty cycle.
+     *
+     * @param dutyCycle Target duty cycle (-1.0 to 1.0, positive = intake, negative = eject)
      */
-    public void setRpm(double rpm) {
-        // Convert RPM to rotations per second (RPS)
-        intakeMotor.setControl(velocityControl.withVelocity(rpm / 60.0));
-    }
-
-    /**
-     * Get the current intake motor RPM.
-     * 
-     * @return Current RPM
-     */
-    public double getRpm() {
-        return intakeMotor.getVelocity().getValueAsDouble() * 60.0;
+    public void setDutyCycle(double dutyCycle) {
+        intakeMotor.setControl(intakeOut.withOutput(-dutyCycle));
     }
 
     /**
      * Stop the intake motor.
      */
     public void stopIntake() {
-        setRpm(0);
+        setDutyCycle(0);
     }
 
     public void setPivotPos(double positionRotations) {
@@ -102,7 +76,6 @@ public class Intake extends SubsystemBase {
     @Override
     public void periodic() {
         // Log intake status to SmartDashboard
-        SmartDashboard.putNumber("Intake/RPM", getRpm());
         SmartDashboard.putNumber("Intake/Current", intakeMotor.getSupplyCurrent().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Position", pivotMotor.getPosition().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Current", pivotMotor.getSupplyCurrent().getValueAsDouble());

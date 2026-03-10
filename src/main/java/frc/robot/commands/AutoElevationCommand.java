@@ -2,6 +2,9 @@ package frc.robot.commands;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants.constAutoAim;
@@ -34,6 +37,9 @@ public class AutoElevationCommand extends Command {
     // Track last calculated values
     private double lastTargetAngle = 25.0; // Start at safe mid-range angle
     private double lastTargetRpm = 5500.0; // Start at preferred RPM
+
+    // Enable/disable flag - toggled by POV up
+    private boolean enabled = true;
     
     // Throttle dashboard updates (update every N cycles to reduce overhead)
     private int updateCounter = 0;
@@ -53,6 +59,15 @@ public class AutoElevationCommand extends Command {
         addRequirements(hood, flywheel);
     }
     
+    /** Toggle flywheel/auto-aim on or off without cancelling the default command. */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+        if (!enabled) {
+            flywheel.stop();
+            SmartDashboard.putString("AutoElev/Status", "Disabled");
+        }
+    }
+
     @Override
     public void initialize() {
         SmartDashboard.putString("AutoElev/Status", "Active");
@@ -61,6 +76,8 @@ public class AutoElevationCommand extends Command {
     
     @Override
     public void execute() {
+        if (!enabled) return; // Flywheel disabled - do nothing, motor already stopped in setEnabled()
+
         // Get current robot pose from drivetrain odometry
         Pose2d robotPose = drivetrain.getPose();
         
@@ -96,8 +113,16 @@ public class AutoElevationCommand extends Command {
             // TESTING: Aim directly at the AprilTag center (absolute Z position from field)
             goalZMeters = targetPose.getZ();
         } else {
-            // COMPETITION: Aim at absolute goal height
-            goalZMeters = constAutoAim.absoluteGoalHeightMeters;
+            // COMPETITION: Select the same 3D target that AutoYawCommand uses —
+            // HUB center normally, or the nearest ferry point when in the neutral zone.
+            // This ensures elevation and yaw always agree on the target.
+            boolean isRedAlliance = DriverStation.getAlliance()
+                .map(a -> a == Alliance.Red)
+                .orElse(false);
+            Translation3d target = selectTarget(robotPose.getX(), robotPose.getY(), isRedAlliance);
+            xMeters    = target.getX() - robotPose.getX();
+            yMeters    = target.getY() - robotPose.getY();
+            goalZMeters = target.getZ();
         }
         
         // Solve ballistics: prefer lowest launch angle at each RPM for steepest impact arc
@@ -142,7 +167,23 @@ public class AutoElevationCommand extends Command {
         // Never finish - runs continuously as default command
         return false;
     }
-    
+
+    /**
+     * Mirrors AutoYawCommand.selectTarget so both commands always agree on the target.
+     * Hub center normally; nearest ferry point when in the neutral zone.
+     */
+    private Translation3d selectTarget(double robotX, double robotY, boolean isRed) {
+        if (robotX >= constAutoAim.neutralZoneMinX && robotX <= constAutoAim.neutralZoneMaxX) {
+            boolean closerToRight = robotY < (constAutoAim.fieldWidth / 2.0);
+            if (isRed) {
+                return closerToRight ? constAutoAim.redFerryPointRight : constAutoAim.redFerryPointLeft;
+            } else {
+                return closerToRight ? constAutoAim.blueFerryPointRight : constAutoAim.blueFerryPointLeft;
+            }
+        }
+        return isRed ? constAutoAim.redHubPosition : constAutoAim.blueHubPosition;
+    }
+
     @Override
     public void end(boolean interrupted) {
         SmartDashboard.putString("AutoElev/Status", "Stopped");

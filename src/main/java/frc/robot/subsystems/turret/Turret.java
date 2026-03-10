@@ -28,6 +28,9 @@ public class Turret extends SubsystemBase {
         slot0Configs.kD = constTurret.kD;
 
         // Set Motion Magic Expo settings
+        // NOTE: MotionMagicExpo requires non-zero kV and kA to generate a velocity profile.
+        // With both at 0 the controller degenerates to a raw position loop with no profiling.
+        // Set these to measured values once the motor is characterised (e.g. kV ~0.12, kA ~0.01).
         var motionMagicConfigs = turretMotorConfigs.MotionMagic;
         motionMagicConfigs.MotionMagicCruiseVelocity = 0; // Unlimited cruise velocity
         motionMagicConfigs.MotionMagicExpo_kV = 0;
@@ -41,10 +44,11 @@ public class Turret extends SubsystemBase {
         softwareLimitConfigs.ReverseSoftLimitThreshold = constTurret.minTurretMotorPos;
 
         turretMotor.getConfigurator().apply(turretMotorConfigs);
-        turretPID = new MotionMagicExpoVoltage(0); // Start at 0° (forward)
+        turretPID = new MotionMagicExpoVoltage(constTurret.homeMotorPos); // Start at 0° (forward)
 
-        System.out.println("Turret initialized with software limits: [" + 
-            constTurret.minTurretMotorPos + ", " + constTurret.maxTurretMotorPos + "] rotations");
+        System.out.println("Turret initialized. Home=" + constTurret.homeMotorPos
+            + " rot, limits=[" + constTurret.maxTurretMotorPos
+            + ", " + constTurret.minTurretMotorPos + "] rot");
     }
 
     /**
@@ -81,16 +85,19 @@ public class Turret extends SubsystemBase {
 
     /**
      * Convert angle (degrees) to motor position (rotations).
+     * 0° = forward = homeMotorPos (-21.1).
+     * Positive angle (CCW) = less negative motor position (toward -0.5).
+     * Negative angle (CW)  = more negative motor position (toward -42.2).
      */
     private double angleToMotorPos(double angleDegrees) {
-        return angleDegrees * constTurret.angleToPosFactor;
+        return constTurret.homeMotorPos + (angleDegrees * constTurret.angleToPosFactor);
     }
 
     /**
      * Convert motor position (rotations) to angle (degrees).
      */
     private double motorPosToAngle(double positionRotations) {
-        return positionRotations / constTurret.angleToPosFactor;
+        return (positionRotations - constTurret.homeMotorPos) / constTurret.angleToPosFactor;
     }
 
     @Override

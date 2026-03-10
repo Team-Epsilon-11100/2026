@@ -12,20 +12,38 @@ public class Constants {
 
 
    
-    public static final Pose3d hubGoal = new Pose3d(0, 0, 0, new Rotation3d(0, 0, 0));
 
     public class constAutoAim {
-        // Testing mode: aim directly at AprilTag center
-        // Competition mode: aim at custom goal height
-        public static final boolean useTagCenterForTesting = true; // ✅ Set to false for competition
-        
-        // Absolute goal height (used when useTagCenterForTesting = false)
-        public static final double absoluteGoalHeightMeters = Units.inchesToMeters(72); // 72" off ground
+        // Testing mode: aim turret directly at closest AprilTag (no odometry logic)
+        // Set to false for competition to use odometry + neutral zone ferry logic
+        public static final boolean useTagYawForTesting = true;
+
+        // Testing mode for elevation: aim hood/flywheel at AprilTag center height
+        // Set to false for competition to use alliance HUB height
+        public static final boolean useTagCenterForTesting = true;
+
+        // HUB positions on the field (x, y, z) in meters
+        public static final Translation3d blueHubPosition = new Translation3d(4.63,  4.04, 1.83);
+        public static final Translation3d redHubPosition  = new Translation3d(11.92, 4.04, 1.83);
+
+        // Neutral zone (between the BUMPS) - X bounds only, full field width
+        // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
+        public static final double neutralZoneMinX = 4.59;   // Blue BUMPS center
+        public static final double neutralZoneMaxX = 11.95;  // Red  BUMPS center
+        public static final double fieldWidth       = 8.07;  // Full field Y (guardrail to guardrail)
+
+        // Ferry target points: midpoint between HUB and nearest guardrail (y=0 or y=8.07)
+        // Blue Alliance: HUB at x=4.63
+        public static final Translation3d blueFerryPointRight = new Translation3d(4.63,  2.02, 1.83); // toward y=0
+        public static final Translation3d blueFerryPointLeft  = new Translation3d(4.63,  6.05, 1.83); // toward y=8.07
+        // Red Alliance: HUB at x=11.92
+        public static final Translation3d redFerryPointRight  = new Translation3d(11.92, 2.02, 1.83); // toward y=0
+        public static final Translation3d redFerryPointLeft   = new Translation3d(11.92, 6.05, 1.83); // toward y=8.07
     }
     
     public class constDrivetrain {
         public static final int joystickPort = 0;
-        public static final double maxAngularRate = 0.0;
+        public static final double maxAngularRate = 1.5 * Math.PI; // rad/s (~270 deg/s)
         public static final double deadbandPercent = 0.1;
 
         // Advanced Drive Control Constants
@@ -37,7 +55,7 @@ public class Constants {
 
         // Speed Control Constants
         public static final double maxSpeed = Units.feetToMeters(14.5); 
-        public static final double speedModifier = 0.0; 
+        public static final double speedModifier = 0.2; 
 
         // Dimensions
         public static final double chassisWidth = Units.inchesToMeters(27.0);
@@ -135,52 +153,52 @@ public class Constants {
     }
 
     public class constTurret {
-        public static final int turretMotorId = 0; // 3x = Shooter system
-        
-        // Gearing: motor rotations per turret rotation (output shaft)
-        // Example: 100:1 gear ratio means motor spins 100x for 1 turret rotation
-        public static final double gearRatio = 100.0; // Motor rotations per 1 turret rotation
+        public static final int turretMotorId = 33; // TODO: set correct motor ID (was 33)
         
         // Turret angle limits (degrees, robot-relative)
         // 0° = forward, positive = CCW when viewed from above
-        public static final double maxTurretAngleDegrees = 180.0;  // Max CCW
-        public static final double minTurretAngleDegrees = -180.0; // Max CW
-        
-        // Motor position limits (rotations)
-        // Calculate based on angle limits and gear ratio
-        public static final double maxTurretMotorPos = (maxTurretAngleDegrees / 360.0) * gearRatio;
-        public static final double minTurretMotorPos = (minTurretAngleDegrees / 360.0) * gearRatio;
-        
-        // Conversion factor: motor rotations per degree
-        public static final double angleToPosFactor = gearRatio / 360.0;
+        public static final double maxTurretAngleDegrees =  180.0;  // CCW limit
+        public static final double minTurretAngleDegrees = -180.0;  // CW limit
+
+        // Measured motor positions at known angles (from physical testing)
+        //  -0.5 rot  =  180° (CCW hard stop)
+        // -21.1 rot  =    0° (forward / home)
+        // -42.2 rot  = -180° (CW hard stop)
+        public static final double homeMotorPos      = -21.1; // motor rotations at 0° (forward)
+        public static final double maxTurretMotorPos =  -0.5; // motor rotations at +180° (software forward limit)
+        public static final double minTurretMotorPos = -42.2; // motor rotations at -180° (software reverse limit)
+
+        // Conversion: motor rotations per degree
+        // Range = -0.5 - (-42.2) = 41.7 rot over 360°  =>  0.11583... rot/deg
+        // Note: motor position DECREASES as angle DECREASES (same direction)
+        public static final double angleToPosFactor =
+            (maxTurretMotorPos - minTurretMotorPos) /
+            (maxTurretAngleDegrees - minTurretAngleDegrees); // positive value
+
         public static final double lookaheadTimeMs = 200;
 
         // PID gains
-        public static final double kP = 2.0;
+        public static final double kP = 1.0;
         public static final double kI = 0.0;
         public static final double kD = 0.0;
     }
 
     public class constIntake {
-        public static final int intakeMotorId = 41; // 4x = Intake system
-        public static final int pivotMotorId = 42;
+        public static final int intakeMotorId = 41; // 41
+        public static final int pivotMotorId = 42; // 42
 
-        public static final double rpm = 5500;
-        
-        public static final double intakeKp = 0.1;
-        public static final double intakeKi = 0.0;
-        public static final double intakeKd = 0.0;
+        public static final double dutyCycle = 0.7; // Duty cycle (0.0 to 1.0)
 
-        public static final double pivotKp = 0.1;
+        public static final double pivotKp = 1.0;
         public static final double pivotKi = 0.0;   
         public static final double pivotKd = 0.0;
 
-        public static final double deployedPos = 1.0; // Motor rotations for deployed position
-        public static final double retractedPos = 0.0; // Motor rotations for retracted position
-        public static final double pumpPos = 0.5; // Motor rotations for pumped position
+        public static final double deployedPos = 30.0; // Motor rotations for deployed position
+        public static final double retractedPos = 1.0; // Motor rotations for retracted position
+        public static final double pumpPos = 22.0; // Motor rotations for pumped position
         
         // Pump timing
-        public static final double pumpDelaySeconds = 0.25; // Time to wait between deployed and pumped positions
+        public static final double pumpDelaySeconds = 0.5; // Time to wait between deployed and pumped positions
     }
 
     public class constIndexer {
@@ -205,7 +223,7 @@ public class Constants {
 
     public class constFlywheel {
         public static final int flywheelMotorId = 32; // 3x = Shooter system
-        public static final double maxFlywheelRPM = 6000;
+        public static final double maxFlywheelRPM = 5500;
         public static final double minFlywheelRPM = 0;
 
         public static final double kP = 0.2;
