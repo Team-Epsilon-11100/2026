@@ -330,6 +330,18 @@ public class Vision extends SubsystemBase {
                 new Rotation3d(0, 0, latestVisionPose.getRotation().getRadians())
             ));
             Logger.recordOutput("Vision/LatestPoseTimestamp", latestVisionTimestamp);
+
+            // Publish to SmartDashboard as a double array [x, y, headingDeg, timestamp]
+            SmartDashboard.putNumberArray("Vision/Pose", new double[] {
+                latestVisionPose.getX(),
+                latestVisionPose.getY(),
+                latestVisionPose.getRotation().getDegrees(),
+                latestVisionTimestamp
+            });
+        } else {
+            SmartDashboard.putNumberArray("Vision/Pose", new double[] {
+                Double.NaN, Double.NaN, Double.NaN, 0.0
+            });
         }
     }
 

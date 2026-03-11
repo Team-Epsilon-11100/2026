@@ -51,6 +51,9 @@ public class AutoYawCommand extends Command {
 
     @Override
     public void initialize() {
+        // Seed lastTargetAngle from the turret's actual current position so that
+        // if no tag is ever seen the turret holds where it physically is, not 0°.
+        lastTargetAngle = turret.getAngle();
         SmartDashboard.putString("AutoYaw/Status", "Active");
         System.out.println("AutoYaw: started (mode=" +
             (constAutoAim.useTagYawForTesting ? "TAG-TEST" : "COMPETITION") + ")");
@@ -59,7 +62,26 @@ public class AutoYawCommand extends Command {
     @Override
     public void execute() {
         Pose2d robotPose = drivetrain.getPose();
-        double[] velocities = drivetrain.getFieldVelocities(); // [vx, vy, omega]
+
+        // Always use the CTRE pose estimator heading — it fuses Pigeon2 gyro at 250Hz
+        // with periodic vision corrections, so it's both field-absolute AND always fresh.
+        // latestVisionPose.getRotation() goes stale the moment the robot moves between
+        // camera frames, which would freeze the turret when rotating with no tags visible.
+        edu.wpi.first.math.geometry.Rotation2d robotHeading = robotPose.getRotation();
+
+        Pose2d visionPose = Vision.getLatestVisionPose();
+        // Log both so you can verify which is being used and whether it matches reality
+        SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
+        SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg",   robotPose.getRotation().getDegrees());
+        SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", false);
+
+        double[] velocities = drivetrain.getFieldVelocities(); // [vx, vy, omega] — field frame
+
+        // Dead-band: ignore tiny velocity/omega values so gyro noise doesn't
+        // rotate the lookahead prediction and produce a drifting target angle.
+        if (Math.abs(velocities[0]) < 0.05) velocities[0] = 0.0;
+        if (Math.abs(velocities[1]) < 0.05) velocities[1] = 0.0;
+        if (Math.abs(velocities[2]) < 0.01) velocities[2] = 0.0;
 
         double targetAngle;
 
@@ -77,7 +99,7 @@ public class AutoYawCommand extends Command {
 
             CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
                 robotPose.getTranslation(),
-                robotPose.getRotation(),
+                robotHeading,
                 velocities[0],
                 velocities[1],
                 velocities[2],
@@ -103,7 +125,7 @@ public class AutoYawCommand extends Command {
 
             CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
                 robotPose.getTranslation(),
-                robotPose.getRotation(),
+                robotHeading,
                 velocities[0],
                 velocities[1],
                 velocities[2],
@@ -121,16 +143,18 @@ public class AutoYawCommand extends Command {
         }
 
         // ── ANGLE WRAPPING ───────────────────────────────────────────────────────────
-        // Keep targetAngle in [-180, +180] before sending to turret,
-        // matching the same wrap logic used by the POV nudge buttons.
+        // Apply mounting offset to correct for turret physical zero vs gyro zero mismatch,
+        // then keep targetAngle in [-180, +180] before sending to turret.
+        targetAngle += constTurret.turretAngleOffsetDegrees;
         while (targetAngle > constTurret.maxTurretAngleDegrees)  targetAngle -= 360.0;
         while (targetAngle < constTurret.minTurretAngleDegrees)  targetAngle += 360.0;
 
         turret.setAngle(targetAngle);
         lastTargetAngle = targetAngle;
 
-        SmartDashboard.putNumber("AutoYaw/TargetAngle",  targetAngle);
-        SmartDashboard.putNumber("AutoYaw/CurrentAngle", turret.getAngle());
+        SmartDashboard.putNumber("AutoYaw/TargetAngle",      targetAngle);
+        SmartDashboard.putNumber("AutoYaw/CurrentAngle",     turret.getAngle());
+        SmartDashboard.putNumber("AutoYaw/RobotHeadingDeg",  robotHeading.getDegrees());
     }
 
     /**

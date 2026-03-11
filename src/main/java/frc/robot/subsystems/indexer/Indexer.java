@@ -17,13 +17,7 @@ public class Indexer extends SubsystemBase {
         var motorConfigs = new TalonFXConfiguration();
 
         // Set PID gains for velocity control (Slot 2)
-        var slot2Configs = motorConfigs.Slot2;
-        slot2Configs.kS = 0; // Static friction compensation
-        slot2Configs.kV = 0; // Velocity feedforward
-        slot2Configs.kA = 0; // Acceleration feedforward
-        slot2Configs.kP = constIndexer.kP;
-        slot2Configs.kI = constIndexer.kI;
-        slot2Configs.kD = constIndexer.kD;
+  
 
         // Set Motion Magic settings
         var motionMagicConfigs = motorConfigs.MotionMagic;

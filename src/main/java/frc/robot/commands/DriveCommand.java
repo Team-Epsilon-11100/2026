@@ -97,6 +97,11 @@ public class DriveCommand extends Command {
         // Apply curve to rotation separately
         rotationValue = Math.copySign(Math.pow(Math.abs(rotationValue), constDrivetrain.inputCurve), rotationValue);
 
+        // Apply speed modifier to all axes after curve is applied
+        translationValue *= constDrivetrain.speedModifier;
+        strafeValue *= constDrivetrain.speedModifier;
+        rotationValue *= constDrivetrain.speedModifier;
+
         // Scale the output if slow drive is enabled
         if (m_slowDrive.getAsBoolean()) {
             translationValue *= constDrivetrain.halfSpeedFactor;

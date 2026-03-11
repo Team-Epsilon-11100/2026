@@ -376,15 +376,34 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     }
 
     /**
-     * Gets the current field-relative velocities of the robot.
+     * Gets the robot heading in field coordinates.
+     * This is the raw pose estimator heading — 0° = toward +X (red alliance wall
+     * from blue side). Use this for all field-relative aiming calculations.
      *
-     * @return Array containing [vx (m/s), vy (m/s), omega (rad/s)]
+     * @return Robot heading (CCW positive, 0° = toward +X field axis)
+     */
+    public Rotation2d getFieldHeading() {
+        return getState().Pose.getRotation();
+    }
+
+    /**
+     * Gets the current field-relative velocities of the robot.
+     * CTRE's SwerveDriveState.Speeds is robot-relative ChassisSpeeds, so we
+     * rotate vx/vy into the field frame using the current robot heading.
+     *
+     * @return Array containing [vx (m/s), vy (m/s), omega (rad/s)] in field frame
      */
     public double[] getFieldVelocities() {
         var state = getState();
+        double heading = state.Pose.getRotation().getRadians(); // same heading as getFieldHeading()
+        double vxRobot = state.Speeds.vxMetersPerSecond;
+        double vyRobot = state.Speeds.vyMetersPerSecond;
+        // Rotate from robot frame to field frame
+        double vxField = vxRobot * Math.cos(heading) - vyRobot * Math.sin(heading);
+        double vyField = vxRobot * Math.sin(heading) + vyRobot * Math.cos(heading);
         return new double[] {
-                state.Speeds.vxMetersPerSecond,
-                state.Speeds.vyMetersPerSecond,
+                vxField,
+                vyField,
                 state.Speeds.omegaRadiansPerSecond
         };
     }

@@ -65,6 +65,14 @@ public class Intake extends SubsystemBase {
         setPivotPos(constIntake.deployedPos);
     }
 
+    /**
+     * Returns true when the pivot is within tolerance of the fully deployed position.
+     */
+    public boolean isDeployed() {
+        double pos = pivotMotor.getPosition().getValueAsDouble();
+        return Math.abs(pos - constIntake.deployedPos) <= constIntake.deployedTolerance;
+    }
+
     public void retract() {
         setPivotPos(constIntake.retractedPos);
     }

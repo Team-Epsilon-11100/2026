@@ -28,6 +28,10 @@ public class Hood extends SubsystemBase {
         slot0Configs.kD = constHood.kD; // A velocity error of 1 rps results in 0.1 V output
 
         // set Motion Magic Expo settings
+        // NOTE: MotionMagicExpo requires non-zero kV and kA to generate a velocity profile.
+        // With both at 0 the controller degenerates to a raw position loop — it will slam
+        // to position at full voltage with no speed limit, risking mechanical damage.
+        // Set these after characterisation (e.g. kV ~0.12 V/rps, kA ~0.01 V/(rps/s)).
         var motionMagicConfigs = hoodMotorConfigs.MotionMagic;
         motionMagicConfigs.MotionMagicCruiseVelocity = 0; // Unlimited cruise velocity
         motionMagicConfigs.MotionMagicExpo_kV = 0; // kV is around 0.12 V/rps

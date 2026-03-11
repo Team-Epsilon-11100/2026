@@ -9,6 +9,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants.constDrivetrain;
+import frc.robot.Constants.constHood;
 import frc.robot.Constants.constIndexer;
 import frc.robot.Constants.constIntake;
 import frc.robot.Constants.constKicker;
@@ -72,31 +73,30 @@ public class RobotContainer {
     turret = new Turret();
     
     intake.deploy(); // Start with intake deployed
-
+      indexer.setDutyCycle(constIndexer.idleDutyCycle);
     // Configure button bindings and default commands
     configureBindings();
   }
 
   private void configureBindings() {
-    // Default command: Advanced drive with heading lock, input curves, and slow
-    // mode
+    // Default command: Advanced drive with heading lock, input curves, and slow mode
+    // B button held = half speed mode
     drivetrain.setDefaultCommand(
         new DriveCommand(
             drivetrain,
-            () -> -driverController.getLeftY(), // Forward/backward (negated for correct direction)
-            () -> -driverController.getLeftX(), // Left/right (negated for correct direction)
-            () -> -driverController.getRightX(), // Rotation (negated for correct direction)
-            driverController.b(), // Slow drive mode (hold left bumper)
-            constDrivetrain.maxSpeed, // Max speed
-            constDrivetrain.maxAngularRate, // Max angular rate
-            vision // Vision subsystem
+            () -> -driverController.getLeftY(),
+            () -> -driverController.getLeftX(),
+            () -> -driverController.getRightX(),
+            driverController.b(), // B held = half speed
+            constDrivetrain.maxSpeed,
+            constDrivetrain.maxAngularRate,
+            vision
         ));
 
     // Default command: Continuous auto-aiming based on closest visible AprilTag
-    // Runs automatically, no button press needed
-    // This will continuously command both hood and flywheel with calculated values
     AutoElevationCommand autoElevation = new AutoElevationCommand(hood, flywheel, drivetrain);
-    hood.setDefaultCommand(autoElevation);
+    hood.setDefaultCommand(
+        Commands.waitUntil(intake::isDeployed).andThen(autoElevation));
 
     // POV up: toggle flywheel/auto-aim on or off
     driverController.povUp().onTrue(
@@ -107,53 +107,69 @@ public class RobotContainer {
         })
     );
 
-    // turret.setDefaultCommand(
-    //     new AutoYawCommand(turret, drivetrain));
+    turret.setDefaultCommand(
+        Commands.waitUntil(intake::isDeployed).andThen(new AutoYawCommand(turret, drivetrain)));
 
+    // Right trigger: shoot (kicker + indexer)
     driverController.rightTrigger().whileTrue(
         Commands.runOnce(() -> {
           kicker.setDutyCycle(constKicker.dutyCycle);
-        })).whileFalse(
+          indexer.setDutyCycle(constIndexer.dutyCycle);
+        }, kicker, indexer)).whileFalse(
             Commands.runOnce(() -> {
               kicker.stop();
-            }));
+              indexer.setDutyCycle(constIndexer.idleDutyCycle);
+            }, kicker, indexer));
 
-    // Right bumper: run intake + indexer while held, stop both when released
-    driverController.rightBumper().whileTrue(
+    // A: run intake while held, stop when released
+    driverController.a().whileTrue(
         Commands.runOnce(() -> {
           intake.setDutyCycle(constIntake.dutyCycle);
-          indexer.setDutyCycle(constIndexer.dutyCycle);
-        }, intake, indexer)
+        }, intake)
     ).onFalse(
         Commands.runOnce(() -> {
           intake.setDutyCycle(0);
-          indexer.setDutyCycle(constIndexer.dutyCycle * 0.6);
-        }, intake, indexer)
-    );
-
-    // Left bumper: toggle intake deploy/retract on each press
-    driverController.leftBumper().onTrue(
-        Commands.runOnce(() -> {
-          if (intakeDeployed) {
-            intake.retract();
-          } else {
-            intake.deploy();
-          }
-          intakeDeployed = !intakeDeployed;
         }, intake)
     );
 
-    // Left trigger: Pump intake while held, retract when released
-    driverController.leftTrigger().whileTrue(
+    // B: half speed mode (handled in DriveCommand) + stow hood to minimum angle while held
+    driverController.b().whileTrue(
+        Commands.run(() -> hood.setAngle(constHood.minHoodAngleDegrees), hood)
+    ).onFalse(
+        Commands.runOnce(() -> {}, hood) // release hood back to default command
+    );
+
+    // Left trigger: Pump intake while held
+    driverController.y().whileTrue(
         new PumpIntakeCommand(intake));
 
-    // POV left/right: nudge turret by ±15° for testing (AutoYaw disabled)
-    // Wraps around: going past +180° jumps to -180° and vice versa
+    // POV down: reverse kicker and indexer while held (unjam)
+    driverController.povDown().whileTrue(
+        Commands.runOnce(() -> {
+          kicker.setDutyCycle(constKicker.reverseDutyCycle);
+          indexer.setDutyCycle(constIndexer.reverseDutyCycle);
+        }, kicker, indexer)
+    ).onFalse(
+        Commands.runOnce(() -> {
+          kicker.stop();
+          indexer.setDutyCycle(constIndexer.idleDutyCycle);
+        }, kicker, indexer)
+    );
+
+    // Start or Back: reset gyro heading (treat current facing as field forward)
+    driverController.start().onTrue(
+        Commands.runOnce(() -> drivetrain.seedFieldCentric(), drivetrain)
+    );
+    driverController.back().onTrue(
+        Commands.runOnce(() -> drivetrain.seedFieldCentric(), drivetrain)
+    );
+
+    // POV left/right: nudge turret by ±15° for testing
     driverController.povLeft().onTrue(
         Commands.runOnce(() -> {
           turretTargetAngle -= 15.0;
           if (turretTargetAngle < constTurret.minTurretAngleDegrees) {
-            turretTargetAngle += 360.0; // wrap: -195° → +165°
+            turretTargetAngle += 360.0;
           }
           turret.setAngle(turretTargetAngle);
           SmartDashboard.putNumber("Turret/TargetAngle", turretTargetAngle);
@@ -164,7 +180,7 @@ public class RobotContainer {
         Commands.runOnce(() -> {
           turretTargetAngle += 15.0;
           if (turretTargetAngle > constTurret.maxTurretAngleDegrees) {
-            turretTargetAngle -= 360.0; // wrap: +195° → -165°
+            turretTargetAngle -= 360.0;
           }
           turret.setAngle(turretTargetAngle);
           SmartDashboard.putNumber("Turret/TargetAngle", turretTargetAngle);
@@ -173,6 +189,34 @@ public class RobotContainer {
   }
 
   public Command getAutonomousCommand() {
-    return Commands.print("No autonomous command configured");
+    // Drive forward 1 metre at ~1 m/s (takes ~1 s), then shoot for 15 s
+    return Commands.sequence(
+        // Drive forward 1 m (field-relative +X) for 1 second
+        drivetrain.applyRequest(() ->
+            drivetrain.drive
+                .withVelocityX(0.5)   // 1 m/s forward
+                .withVelocityY(0)
+                .withRotationalRate(0)
+        ).withTimeout(2.0),
+
+        // Stop driving
+        drivetrain.applyRequest(() ->
+            drivetrain.drive
+                .withVelocityX(0)
+                .withVelocityY(0)
+                .withRotationalRate(0)
+        ).withTimeout(0.1),
+
+        // Run kicker + indexer for 15 seconds (equivalent to holding right trigger)
+        Commands.runOnce(() -> {
+            kicker.setDutyCycle(constKicker.dutyCycle);
+            indexer.setDutyCycle(constIndexer.dutyCycle);
+        }, kicker, indexer),
+        Commands.waitSeconds(15),
+        Commands.runOnce(() -> {
+            kicker.stop();
+            indexer.setDutyCycle(constIndexer.idleDutyCycle);
+        }, kicker, indexer)
+    );
   }
 }

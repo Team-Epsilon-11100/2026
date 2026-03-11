@@ -8,7 +8,8 @@ import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.util.Units;
 
-public class Constants {
+public class 
+Constants {
 
 
    
@@ -16,15 +17,15 @@ public class Constants {
     public class constAutoAim {
         // Testing mode: aim turret directly at closest AprilTag (no odometry logic)
         // Set to false for competition to use odometry + neutral zone ferry logic
-        public static final boolean useTagYawForTesting = true;
+        public static final boolean useTagYawForTesting = false;
 
         // Testing mode for elevation: aim hood/flywheel at AprilTag center height
         // Set to false for competition to use alliance HUB height
-        public static final boolean useTagCenterForTesting = true;
+        public static final boolean useTagCenterForTesting = false;
 
         // HUB positions on the field (x, y, z) in meters
-        public static final Translation3d blueHubPosition = new Translation3d(4.63,  4.04, 1.83);
-        public static final Translation3d redHubPosition  = new Translation3d(11.92, 4.04, 1.83);
+        public static final Translation3d blueHubPosition = new Translation3d(4.63,  4.04, Units.inchesToMeters(78));
+        public static final Translation3d redHubPosition  = new Translation3d(11.92, 4.04, Units.inchesToMeters(78));
 
         // Neutral zone (between the BUMPS) - X bounds only, full field width
         // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
@@ -43,8 +44,7 @@ public class Constants {
     
     public class constDrivetrain {
         public static final int joystickPort = 0;
-        public static final double maxAngularRate = 1.5 * Math.PI; // rad/s (~270 deg/s)
-        public static final double deadbandPercent = 0.1;
+        public static final double maxAngularRate = 1.0 * Math.PI; // rad/s (~270 deg/s)
 
         // Advanced Drive Control Constants
         public static final double deadband = 0.1;
@@ -85,8 +85,10 @@ public class Constants {
                                                        // penalty)
 
         // Standard deviation baselines, for 1 meter distance and 1 tag
+        // Angular stddev is in RADIANS for WPILib's pose estimator.
+        // Lowered so vision heading corrections actually get fused into the gyro.
         public static final double linearStdDevBaseline = 0.01; // Meters
-        public static final double angularStdDevBaseline = 5.0; // Degrees
+        public static final double angularStdDevBaseline = 0.1; // Radians (~5.7°) — was 5.0 (degrees, too large)
 
         // The layout of the AprilTags on the field
 
@@ -104,7 +106,7 @@ public class Constants {
         // Using simple positions for testing - adjust based on actual robot measurements
         public static final Transform3d mainCameraOffset = new Transform3d(
                 new Translation3d(Units.inchesToMeters(12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(16.158)),
-                new Rotation3d(0, Math.toRadians(-20), 0)); // Look forward-center
+                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45))); // Look forward-center
 
         public static final Transform3d leftCameraOffset = new Transform3d(
                 new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
@@ -124,8 +126,9 @@ public class Constants {
         };
 
         // Multipliers to apply for MegaTag 2 observations
+        // Angular factor is NOT infinity so that multi-tag heading corrections are fused.
         public static final double linearStdDevMegatag2Factor = 0.5;
-        public static final double angularStdDevMegatag2Factor = Double.POSITIVE_INFINITY;
+        public static final double angularStdDevMegatag2Factor = 1.0; // was POSITIVE_INFINITY — now fuses heading
 
         // Camera simulation properties
         public static final int cameraFPS = 30;
@@ -168,17 +171,28 @@ public class Constants {
         public static final double maxTurretMotorPos =  -0.5; // motor rotations at +180° (software forward limit)
         public static final double minTurretMotorPos = -42.2; // motor rotations at -180° (software reverse limit)
 
-        // Conversion: motor rotations per degree
-        // Range = -0.5 - (-42.2) = 41.7 rot over 360°  =>  0.11583... rot/deg
-        // Note: motor position DECREASES as angle DECREASES (same direction)
+        // Conversion: motor rotations per degree.
+        // Derived from measured endpoints through the home position:
+        //   +180° → -0.5 rot   ⟹  factor = (-0.5 - (-21.1)) / 180  = +0.11444 rot/deg
+        //   -180° → -42.2 rot  ⟹  factor = (-42.2 - (-21.1)) / -180 = +0.11722 rot/deg
+        // Use the CCW half (0° → +180°) as the reference since that is the home side.
+        // Positive value: motor position increases (less negative) as angle increases (CCW).
         public static final double angleToPosFactor =
-            (maxTurretMotorPos - minTurretMotorPos) /
-            (maxTurretAngleDegrees - minTurretAngleDegrees); // positive value
+            (maxTurretMotorPos - homeMotorPos) / maxTurretAngleDegrees; // +0.11444 rot/deg
 
         public static final double lookaheadTimeMs = 200;
 
+        // Offset (degrees) added to the auto-aim angle to correct for the turret's
+        // physical zero not matching the robot's gyro zero.
+        // The motor was zeroed at the 180° position (-0.5 rot), so the turret
+        // forward (0°) corresponds to -21.1 motor rotations.
+        // Tune this if the turret points in the wrong direction:
+        //   pointing CW of target  → increase this value
+        //   pointing CCW of target → decrease this value
+        public static final double turretAngleOffsetDegrees = 180;
+
         // PID gains
-        public static final double kP = 1.0;
+        public static final double kP = 0.5;
         public static final double kI = 0.0;
         public static final double kD = 0.0;
     }
@@ -194,6 +208,7 @@ public class Constants {
         public static final double pivotKd = 0.0;
 
         public static final double deployedPos = 30.0; // Motor rotations for deployed position
+        public static final double deployedTolerance = 3.0; // Rotations of acceptable error to consider "deployed"
         public static final double retractedPos = 1.0; // Motor rotations for retracted position
         public static final double pumpPos = 22.0; // Motor rotations for pumped position
         
@@ -205,16 +220,15 @@ public class Constants {
         public static final int indexerMotorId = 51; // 5x = Indexer system
         
         public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
-        
-        public static final double kP = 0.1;
-        public static final double kI = 0.0;
-        public static final double kD = 0.0;
+        public static final double idleDutyCycle = 0.2; // Minimum duty cycle to hold balls in place without jamming
+        public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
     }
 
     public class constKicker {
         public static final int kickerMotorId = 61; // 6x = Kicker system
         
         public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
+        public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
         
         public static final double kP = 0.1;
         public static final double kI = 0.0;
@@ -237,12 +251,12 @@ public class Constants {
 
     public class constBallisticSolver {
         // Shooter physical constants
-        public static final double shooterHeightMeters = Units.inchesToMeters(41.25); // Height of shooter off ground (meters)
+        public static final double shooterHeightMeters = Units.inchesToMeters(17.0625); // Height of shooter off ground (meters)
         public static final double gravity = 9.806; // m/s^2
         
         // Flywheel configuration
         public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
-        public static final double exitVelocityFactor = 0.85; // Tune this: ball exit speed / wheel surface speed
+        public static final double exitVelocityFactor = 1.0; // Tune this: ball exit speed / wheel surface speed
         public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
         public static final double speedMod = 1.0; // Fine-tune multiplier applied after solver
 
@@ -253,8 +267,8 @@ public class Constants {
 
         // Impact angle targeting (degrees, negative = descending)
         // Goal: ball lands from above, descending at ~60 deg from horizontal
-        public static final double desiredImpactAngleDeg = -60.0; // Ideal descent angle
-        public static final double impactBandMinDeg = -70.0;      // Steepest acceptable (more negative)
-        public static final double impactBandMaxDeg = -45.0;      // Shallowest acceptable (less negative)
+        public static final double desiredImpactAngleDeg = -70.0; // Ideal descent angle
+        public static final double impactBandMinDeg = -80.0;      // Steepest acceptable (more negative)
+        public static final double impactBandMaxDeg = -60.0;      // Shallowest acceptable (less negative)
     }
 }
