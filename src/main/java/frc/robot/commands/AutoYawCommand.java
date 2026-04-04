@@ -2,7 +2,6 @@ package frc.robot.commands;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
@@ -30,8 +29,7 @@ import frc.robot.utils.CalculateYaw;
  *     - Inside neutral zone (X between 4.59–11.95m, between the BUMPS): aim at the
  *       lateral ferry midpoint closest to the nearest guardrail, so the ball arcs
  *       safely into the HUB from the side.
- *   Kinematic compensation (robot velocity lookahead) is applied automatically via
- *   CalculateYaw.aimWithLookahead.
+ *   Uses direct field-geometry trig with camera-heading as the primary heading source.
  *
  * Both modes apply the same ±180° angle wrapping used by the manual POV nudge buttons.
  */
@@ -42,7 +40,6 @@ public class AutoYawCommand extends Command {
 
     // Holds the last commanded angle so the turret doesn't snap to 0 when tags are lost
     private double lastTargetAngle = 0.0;
-
     public AutoYawCommand(Turret turret, Drivetrain drivetrain) {
         this.turret = turret;
         this.drivetrain = drivetrain;
@@ -62,28 +59,20 @@ public class AutoYawCommand extends Command {
     @Override
     public void execute() {
         Pose2d robotPose = drivetrain.getPose();
-
-        // Always use the CTRE pose estimator heading — it fuses Pigeon2 gyro at 250Hz
-        // with periodic vision corrections, so it's both field-absolute AND always fresh.
-        // latestVisionPose.getRotation() goes stale the moment the robot moves between
-        // camera frames, which would freeze the turret when rotating with no tags visible.
-        edu.wpi.first.math.geometry.Rotation2d robotHeading = robotPose.getRotation();
-
         Pose2d visionPose = Vision.getLatestVisionPose();
-        // Log both so you can verify which is being used and whether it matches reality
+        // Prefer camera-derived heading when available (immune to gyro reset effects).
+        double headingDeg = visionPose != null
+                ? visionPose.getRotation().getDegrees()
+                : robotPose.getRotation().getDegrees();
+
+        // Log both so you can verify which one is being used
         SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
         SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg",   robotPose.getRotation().getDegrees());
-        SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", false);
-
-        double[] velocities = drivetrain.getFieldVelocities(); // [vx, vy, omega] — field frame
-
-        // Dead-band: ignore tiny velocity/omega values so gyro noise doesn't
-        // rotate the lookahead prediction and produce a drifting target angle.
-        if (Math.abs(velocities[0]) < 0.05) velocities[0] = 0.0;
-        if (Math.abs(velocities[1]) < 0.05) velocities[1] = 0.0;
-        if (Math.abs(velocities[2]) < 0.01) velocities[2] = 0.0;
+        SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", visionPose != null);
 
         double targetAngle;
+        double targetX;
+        double targetY;
 
         if (constAutoAim.useTagYawForTesting) {
             // ── TEST MODE ────────────────────────────────────────────────────────────
@@ -96,18 +85,15 @@ public class AutoYawCommand extends Command {
                 SmartDashboard.putString("AutoYaw/Status", "TEST: No tag - holding last");
                 return;
             }
-
-            CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
-                robotPose.getTranslation(),
-                robotHeading,
-                velocities[0],
-                velocities[1],
-                velocities[2],
-                tag.getTranslation().toTranslation2d(),
-                constTurret.lookaheadTimeMs / 1000.0
-            );
-
-            targetAngle = aim.robotRelativeAngle().getDegrees();
+            targetX = tag.getX();
+            targetY = tag.getY();
+            targetAngle = CalculateYaw.calculateTurretYawSetpoint(
+                    robotPose.getX(),
+                    robotPose.getY(),
+                    targetX,
+                    targetY,
+                    headingDeg,
+                    constTurret.turretAngleOffsetDegrees);
             SmartDashboard.putString("AutoYaw/Status", "TEST: Tracking tag");
 
         } else {
@@ -121,40 +107,33 @@ public class AutoYawCommand extends Command {
                 .orElse(false);
 
             Translation3d target3d = selectTarget(robotX, robotY, isRed);
-            Translation2d targetPos = new Translation2d(target3d.getX(), target3d.getY());
+            targetX = target3d.getX();
+            targetY = target3d.getY();
 
-            CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
-                robotPose.getTranslation(),
-                robotHeading,
-                velocities[0],
-                velocities[1],
-                velocities[2],
-                targetPos,
-                constTurret.lookaheadTimeMs / 1000.0
-            );
-
-            targetAngle = aim.robotRelativeAngle().getDegrees();
+            targetAngle = CalculateYaw.calculateTurretYawSetpoint(
+                    robotX,
+                    robotY,
+                    targetX,
+                    targetY,
+                    headingDeg,
+                    constTurret.turretAngleOffsetDegrees);
 
             boolean inNeutralZone = isInNeutralZone(robotX);
             SmartDashboard.putString("AutoYaw/Status",        inNeutralZone ? "COMP: Ferry" : "COMP: HUB");
             SmartDashboard.putBoolean("AutoYaw/InNeutralZone", inNeutralZone);
-            SmartDashboard.putNumber("AutoYaw/TargetX",        target3d.getX());
-            SmartDashboard.putNumber("AutoYaw/TargetY",        target3d.getY());
+            SmartDashboard.putNumber("AutoYaw/TargetX",        targetX);
+            SmartDashboard.putNumber("AutoYaw/TargetY",        targetY);
         }
 
-        // ── ANGLE WRAPPING ───────────────────────────────────────────────────────────
-        // Apply mounting offset to correct for turret physical zero vs gyro zero mismatch,
-        // then keep targetAngle in [-180, +180] before sending to turret.
-        targetAngle += constTurret.turretAngleOffsetDegrees;
-        while (targetAngle > constTurret.maxTurretAngleDegrees)  targetAngle -= 360.0;
-        while (targetAngle < constTurret.minTurretAngleDegrees)  targetAngle += 360.0;
+        // Keep target in turret's expected wrapping interval
+        targetAngle = CalculateYaw.normalizeTo180(targetAngle);
 
         turret.setAngle(targetAngle);
         lastTargetAngle = targetAngle;
 
         SmartDashboard.putNumber("AutoYaw/TargetAngle",      targetAngle);
         SmartDashboard.putNumber("AutoYaw/CurrentAngle",     turret.getAngle());
-        SmartDashboard.putNumber("AutoYaw/RobotHeadingDeg",  robotHeading.getDegrees());
+        SmartDashboard.putNumber("AutoYaw/RobotHeadingDeg",  headingDeg);
     }
 
     /**

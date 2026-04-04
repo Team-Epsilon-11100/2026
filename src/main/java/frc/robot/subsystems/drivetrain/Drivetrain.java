@@ -19,6 +19,7 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Notifier;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -29,7 +30,7 @@ import org.littletonrobotics.junction.Logger;
 
 import frc.robot.generated.TunerConstants.TunerSwerveDrivetrain;
 import frc.robot.lib.SwerveTelemetry;
-import frc.robot.Constants.constDrivetrain;
+import frc.robot.Constants.constVision;
 
 import frc.robot.subsystems.vision.Vision;
 
@@ -41,6 +42,8 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     private static final double kSimLoopPeriod = 0.005; // 5 ms
     private Notifier m_simNotifier = null;
     private double m_lastSimTime;
+    // Throttle camera-pose publishing to SmartDashboard
+    private int cameraPublishCounter = 0;
 
     /* Blue alliance sees forward as 0 degrees (toward red alliance wall) */
     private static final Rotation2d kBlueAlliancePerspectiveRotation = Rotation2d.kZero;
@@ -52,9 +55,6 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     /* Advanced Drive Control Variables */
     public double rotationLastTriggered = 0.0;
     public Optional<Rotation2d> currentHeading = Optional.empty();
-
-    /** Swerve request to apply during robot-centric driving */
-    private final SwerveRequest.ApplyRobotSpeeds m_applyRobotSpeeds = new SwerveRequest.ApplyRobotSpeeds();
 
     /* Advanced Drive Control Requests */
     public final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
@@ -88,6 +88,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
      * SysId routine for characterizing steer. This is used to find PID gains for
      * the steer motors.
      */
+    @SuppressWarnings("unused")
     private final SysIdRoutine m_sysIdRoutineSteer = new SysIdRoutine(
             new SysIdRoutine.Config(
                     null, // Use default ramp rate (1 V/s)
@@ -107,6 +108,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
      * See the documentation of SwerveRequest.SysIdSwerveRotation for info on
      * importing the log to SysId.
      */
+    @SuppressWarnings("unused")
     private final SysIdRoutine m_sysIdRoutineRotation = new SysIdRoutine(
             new SysIdRoutine.Config(
                     /* This is in radians per second², but SysId only supports "volts per second" */
@@ -306,6 +308,47 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         telemetry.currentSpeeds = state.Speeds;
         telemetry.currentStates = state.ModuleStates;
         telemetry.desiredStates = state.ModuleTargets;
+
+        // Periodically publish camera poses (field coordinates) so you can verify
+        // where the code thinks each camera is relative to the field origin.
+        cameraPublishCounter++;
+        if (cameraPublishCounter >= 10) { // every ~10 periodic calls (~200ms)
+            cameraPublishCounter = 0;
+            var robotPose = getPose();
+            double robotX = robotPose.getX();
+            double robotY = robotPose.getY();
+            double robotHeading = robotPose.getRotation().getRadians();
+
+            // Helper lambda to compute field pose for a Transform3d offset
+            java.util.function.Function<edu.wpi.first.math.geometry.Transform3d, double[]> toFieldPose = (tf) -> {
+                var tr = tf.getTranslation();
+                double tx = tr.getX();
+                double ty = tr.getY();
+                double camX = robotX + tx * Math.cos(robotHeading) - ty * Math.sin(robotHeading);
+                double camY = robotY + tx * Math.sin(robotHeading) + ty * Math.cos(robotHeading);
+                double camYawDeg = Math.toDegrees(robotHeading + tf.getRotation().getZ());
+                // normalize yaw to [-180,180]
+                while (camYawDeg > 180.0) camYawDeg -= 360.0;
+                while (camYawDeg < -180.0) camYawDeg += 360.0;
+                return new double[] { camX, camY, camYawDeg };
+            };
+
+            double[] main = toFieldPose.apply(constVision.mainCameraOffset);
+            double[] left = toFieldPose.apply(constVision.leftCameraOffset);
+            double[] right = toFieldPose.apply(constVision.rightCameraOffset);
+
+            SmartDashboard.putNumber("Vision/MainCam/X_m", main[0]);
+            SmartDashboard.putNumber("Vision/MainCam/Y_m", main[1]);
+            SmartDashboard.putNumber("Vision/MainCam/Yaw_deg", main[2]);
+
+            SmartDashboard.putNumber("Vision/LeftCam/X_m", left[0]);
+            SmartDashboard.putNumber("Vision/LeftCam/Y_m", left[1]);
+            SmartDashboard.putNumber("Vision/LeftCam/Yaw_deg", left[2]);
+
+            SmartDashboard.putNumber("Vision/RightCam/X_m", right[0]);
+            SmartDashboard.putNumber("Vision/RightCam/Y_m", right[1]);
+            SmartDashboard.putNumber("Vision/RightCam/Yaw_deg", right[2]);
+        }
     }
 
     private void startSimThread() {
@@ -314,6 +357,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         /* Run simulation at a faster rate so PID gains behave more reasonably */
         m_simNotifier = new Notifier(() -> {
             final double currentTime = Utils.getCurrentTimeSeconds();
+            
             double deltaTime = currentTime - m_lastSimTime;
             m_lastSimTime = currentTime;
 
@@ -479,7 +523,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         if (vision == null) {
             return getPose(); // Fallback to drivetrain pose
         }
-        var visionPose = vision.getLatestVisionPose();
+        var visionPose = Vision.getLatestVisionPose();
         return visionPose != null ? visionPose : getPose();
     }
 }

@@ -2,7 +2,6 @@ package frc.robot.subsystems.kicker;
 
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.DutyCycleOut;
-import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -17,15 +16,7 @@ public class Kicker extends SubsystemBase {
 
         var motorConfigs = new TalonFXConfiguration();
 
-        // Set PID gains for velocity control (Slot 1)
-        var slot2Configs = motorConfigs.Slot2;
-        slot2Configs.kS = 0; // Static friction compensation
-        slot2Configs.kV = 0; // Velocity feedforward
-        slot2Configs.kA = 0; // Acceleration feedforward
-        slot2Configs.kP = constKicker.kP;
-        slot2Configs.kI = constKicker.kI;
-        slot2Configs.kD = constKicker.kD;
-
+     
         // Set Motion Magic settings
         var motionMagicConfigs = motorConfigs.MotionMagic;
         motionMagicConfigs.MotionMagicCruiseVelocity = 0; // Unlimited cruise velocity

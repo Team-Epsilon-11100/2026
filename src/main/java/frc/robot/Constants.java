@@ -2,14 +2,12 @@ package frc.robot;
 
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
-import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.util.Units;
 
-public class 
-Constants {
+public class Constants {
 
 
    
@@ -24,8 +22,8 @@ Constants {
         public static final boolean useTagCenterForTesting = false;
 
         // HUB positions on the field (x, y, z) in meters
-        public static final Translation3d blueHubPosition = new Translation3d(4.63,  4.04, Units.inchesToMeters(78));
-        public static final Translation3d redHubPosition  = new Translation3d(11.92, 4.04, Units.inchesToMeters(78));
+        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(160-30),  4.04, Units.inchesToMeters(79));
+        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(651.2-179.1+12), 4.04, Units.inchesToMeters(79));
 
         // Neutral zone (between the BUMPS) - X bounds only, full field width
         // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
@@ -35,11 +33,11 @@ Constants {
 
         // Ferry target points: midpoint between HUB and nearest guardrail (y=0 or y=8.07)
         // Blue Alliance: HUB at x=4.63
-        public static final Translation3d blueFerryPointRight = new Translation3d(4.63,  2.02, 1.83); // toward y=0
-        public static final Translation3d blueFerryPointLeft  = new Translation3d(4.63,  6.05, 1.83); // toward y=8.07
+        public static final Translation3d blueFerryPointRight = new Translation3d(4.63,  1, 2); // toward y=0
+        public static final Translation3d blueFerryPointLeft  = new Translation3d(4.63,  7, 2); // toward y=8.07
         // Red Alliance: HUB at x=11.92
-        public static final Translation3d redFerryPointRight  = new Translation3d(11.92, 2.02, 1.83); // toward y=0
-        public static final Translation3d redFerryPointLeft   = new Translation3d(11.92, 6.05, 1.83); // toward y=8.07
+        public static final Translation3d redFerryPointRight  = new Translation3d(11.92, 1, 2); // toward y=0
+        public static final Translation3d redFerryPointLeft   = new Translation3d(11.92, 7, 2); // toward y=8.07
     }
     
     public class constDrivetrain {
@@ -55,7 +53,7 @@ Constants {
 
         // Speed Control Constants
         public static final double maxSpeed = Units.feetToMeters(14.5); 
-        public static final double speedModifier = 0.2; 
+        public static final double speedModifier = 1.0; 
 
         // Dimensions
         public static final double chassisWidth = Units.inchesToMeters(27.0);
@@ -105,16 +103,19 @@ Constants {
         // Right camera: Front-right of robot
         // Using simple positions for testing - adjust based on actual robot measurements
         public static final Transform3d mainCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(16.158)),
-                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45))); // Look forward-center
+        // Camera was mounted at the front in code; move to back by negating X.
+        // Also rotate yaw by 180° so the camera faces the same field direction
+        // when mounted at the rear.
+        new Translation3d(Units.inchesToMeters(-12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(16.158)),
+        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Look rear-center
 
         public static final Transform3d leftCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
-                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-45))); // Look forward-left
+        new Translation3d(Units.inchesToMeters(-12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
+        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-45) + Math.PI)); // Look rear-left
 
         public static final Transform3d rightCameraOffset = new Transform3d(
-                new Translation3d(Units.inchesToMeters(12), Units.inchesToMeters(-12), Units.inchesToMeters(9.3)),
-                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45))); // Look forward-right
+        new Translation3d(Units.inchesToMeters(-12), Units.inchesToMeters(-12), Units.inchesToMeters(9.3)),
+        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Look rear-right
 
 
         // Standard deviation multipliers for each camera (lower = more trusted)
@@ -144,9 +145,53 @@ Constants {
         public static final double maxHoodMotorPos = 12.5;
         public static final double minHoodMotorPos = 0.5;
 
+        // Non-physical software operating ceiling (separate from physical soft limit).
+        // Tune this down to keep hood travel below full mechanical range.
+        public static final double softMaxHoodMotorPos = maxHoodMotorPos;
+
+        /**
+         * Angle convention switch:
+         * true  -> hood angle is complementary to launch angle (launch = 90 - hood),
+         *         e.g. hood 20° means launch 70°.
+         * false -> hood angle already equals launch angle from horizontal.
+         */
+        public static final boolean hoodAngleIsComplementOfLaunch = true;
+
+        /** Convert mechanism hood angle (deg) to ballistic launch angle (deg above horizontal). */
+        public static double hoodAngleToLaunchAngleDeg(double hoodAngleDeg) {
+            return hoodAngleIsComplementOfLaunch ? (90.0 - hoodAngleDeg) : hoodAngleDeg;
+        }
+
+        /** Convert ballistic launch angle (deg above horizontal) to mechanism hood angle (deg). */
+        public static double launchAngleToHoodAngleDeg(double launchAngleDeg) {
+            return hoodAngleIsComplementOfLaunch ? (90.0 - launchAngleDeg) : launchAngleDeg;
+        }
+
+        // Solver launch-angle limits derived from physical hood limits.
+        public static final double minLaunchAngleDegrees = Math.min(
+                hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+                hoodAngleToLaunchAngleDeg(maxHoodAngleDegrees));
+        public static final double maxLaunchAngleDegrees = Math.max(
+                hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+                hoodAngleToLaunchAngleDeg(maxHoodAngleDegrees));
+
         public static final double angleToPosFactor =
             (maxHoodMotorPos - minHoodMotorPos) /
             (maxHoodAngleDegrees - minHoodAngleDegrees);
+
+        // Derived commanded ceiling angle from soft motor-position cap.
+        public static final double softMaxHoodAngleDegrees =
+            minHoodAngleDegrees +
+            (softMaxHoodMotorPos - minHoodMotorPos) / angleToPosFactor;
+
+    // Solver launch-angle limits derived from OPERATING hood limits (min to soft-max).
+    // Use these when you want ballistic solutions to obey the non-physical soft cap.
+    public static final double minLaunchAngleSoftDegrees = Math.min(
+        hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+        hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
+    public static final double maxLaunchAngleSoftDegrees = Math.max(
+        hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+        hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
 
         
 
@@ -189,29 +234,35 @@ Constants {
         // Tune this if the turret points in the wrong direction:
         //   pointing CW of target  → increase this value
         //   pointing CCW of target → decrease this value
-        public static final double turretAngleOffsetDegrees = 180;
+    
+        public static final double turretAngleOffsetDegrees = 90+15;
+     
+        
 
         // PID gains
         public static final double kP = 0.5;
         public static final double kI = 0.0;
         public static final double kD = 0.0;
+
+        public static final double turretCenterX = 8;
+        public static final double turretCenterY = 8;
     }
 
     public class constIntake {
         public static final int intakeMotorId = 41; // 41
         public static final int pivotMotorId = 42; // 42
 
-        public static final double dutyCycle = 0.7; // Duty cycle (0.0 to 1.0)
+        public static final double dutyCycle = 0.75; // Duty cycle (0.0 to 1.0)
 
         public static final double pivotKp = 1.0;
         public static final double pivotKi = 0.0;   
         public static final double pivotKd = 0.0;
 
-        public static final double deployedPos = 30.0; // Motor rotations for deployed position
-        public static final double deployedTolerance = 3.0; // Rotations of acceptable error to consider "deployed"
+        public static final double deployedPos = 32.0; // Motor rotations for deployed position
+        public static final double deployedTolerance = 0.2; // Rotations of acceptable error to consider "deployed"
         public static final double retractedPos = 1.0; // Motor rotations for retracted position
-        public static final double pumpPos = 22.0; // Motor rotations for pumped position
-        
+        public static final double pumpPos = 18.0; // Motor rotations for pumped position
+
         // Pump timing
         public static final double pumpDelaySeconds = 0.5; // Time to wait between deployed and pumped positions
     }
@@ -220,7 +271,7 @@ Constants {
         public static final int indexerMotorId = 51; // 5x = Indexer system
         
         public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
-        public static final double idleDutyCycle = 0.2; // Minimum duty cycle to hold balls in place without jamming
+        public static final double idleDutyCycle = 0; // Minimum duty cycle to hold balls in place without jamming
         public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
     }
 
@@ -230,9 +281,7 @@ Constants {
         public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
         public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
         
-        public static final double kP = 0.1;
-        public static final double kI = 0.0;
-        public static final double kD = 0.0;
+     
     }
 
     public class constFlywheel {
@@ -258,17 +307,28 @@ Constants {
         public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
         public static final double exitVelocityFactor = 1.0; // Tune this: ball exit speed / wheel surface speed
         public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
-        public static final double speedMod = 1.0; // Fine-tune multiplier applied after solver
+        public static final double speedMod = 0.825; // Fine-tune multiplier applied after solver
+
+    // Empirical RPM compensation term (tune on field):
+    // Flight-time-based correction for drag losses (longer flight => more RPM).
+    public static final double rpmPerSecondOfFlightCompensation = 0.0;
 
         // RPM sweep constraints
-        public static final double minMotorRPM = 1000.0; // Don't sweep below this - ball won't reach target
-        public static final double maxMotorRPM = constFlywheel.maxFlywheelRPM; // Motor RPM ceiling (6000)
-        public static final double rpmStep = 50.0; // 50 RPM steps = ~100 iterations max, precise enough
+        public static final double minMotorRPM = 1000.0;
+        public static final double maxMotorRPM = constFlywheel.maxFlywheelRPM;
+        public static final double rpmStep = 50.0;
+
+        // Obstacle clearance gate — ball must clear the 6ft rim before entering the goal.
+        // rimOffsetMeters: how far the rim is in FRONT of the goal center (the rim is before the target).
+        // clearanceXMeters is computed dynamically each cycle as (range - rimOffsetMeters).
+        public static final double rimOffsetMeters  = Units.inchesToMeters(4); // Rim is ~12 inches in front of goal center
+        public static final double clearanceZMeters = Units.inchesToMeters(72); // 6 ft rim height
 
         // Impact angle targeting (degrees, negative = descending)
-        // Goal: ball lands from above, descending at ~60 deg from horizontal
-        public static final double desiredImpactAngleDeg = -70.0; // Ideal descent angle
-        public static final double impactBandMinDeg = -80.0;      // Steepest acceptable (more negative)
-        public static final double impactBandMaxDeg = -60.0;      // Shallowest acceptable (less negative)
+        // HIGH launch angle (lofted arc) clears the 6ft rim and drops steeply into the top of the goal.
+        // The solver now sweeps ALL RPMs and picks whichever solution is closest to desiredImpactAngleDeg.
+        public static final double desiredImpactAngleDeg = -80.0; // Ideal steep descent into goal top
+        public static final double impactBandMinDeg = -90.0;      // Steepest acceptable
+        public static final double impactBandMaxDeg = -70.0;      // Shallowest acceptable
     }
 }
