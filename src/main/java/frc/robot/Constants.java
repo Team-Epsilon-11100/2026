@@ -42,7 +42,7 @@ public class Constants {
     
     public class constDrivetrain {
         public static final int joystickPort = 0;
-        public static final double maxAngularRate = 1.0 * Math.PI; // rad/s (~270 deg/s)
+        public static final double maxAngularRate = 2 * Math.PI; // rad/s (about 1 rotation/sec)
 
         // Advanced Drive Control Constants
         public static final double deadband = 0.1;
@@ -52,7 +52,7 @@ public class Constants {
         public static final double inputCurve = 3.0; // Input exponent (1.0 = linear, 2.0 = squared, etc.)
 
         // Speed Control Constants
-        public static final double maxSpeed = Units.feetToMeters(14.5); 
+        public static final double maxSpeed = 4.39; // m/s, aligned with TunerConstants speed at 12V
         public static final double speedModifier = 1.0; 
 
         // Dimensions
@@ -62,8 +62,11 @@ public class Constants {
     public class constVision {
         
         // Basic filtering thresholds - RELAXED for better detection
-        public static final double maxAmbiguity = 0.7; // Was 0.4 - too strict! Allow more uncertain single-tag detections
-        public static final double maxZError = 1.0; // Was 0.3m - too strict! Allow ±1m Z error (floor-level uncertainty is normal)
+    // Ambiguity filtering is handled in PhotonVision pipeline; robot code does not reject by ambiguity.
+    public static final double maxAmbiguity = 0.60;
+    public static final double maxZError = 3.0; // Loosened to accept more camera-based solves (Photon handles quality)
+    public static final double fieldBoundsMarginMeters = 1.0; // Allow slight out-of-field noise near borders
+    public static final double latestVisionMaxAgeSec = 0.30; // Ignore stale vision pose after 300ms
 
         // Tag filtering for auto-alignment
         public static final double maxTagDistance = 5.0; // Maximum distance to consider tags (meters)
@@ -98,6 +101,13 @@ public class Constants {
         public static final String leftCameraName = "LeftCamera";
         public static final String rightCameraName = "RightCamera";
 
+    // Optional MJPEG stream URLs for Elastic CameraPublisher widgets.
+    // Set these to your PhotonVision stream endpoints when known.
+    // Example format: "http://photonvision.local:1182/?action=stream"
+    public static final String mainCameraStreamUrl = "";
+    public static final String leftCameraStreamUrl = "";
+    public static final String rightCameraStreamUrl = "";
+
         // Main camera: Center front of robot
         // Left camera: Front-left of robot
         // Right camera: Front-right of robot
@@ -106,24 +116,28 @@ public class Constants {
         // Camera was mounted at the front in code; move to back by negating X.
         // Also rotate yaw by 180° so the camera faces the same field direction
         // when mounted at the rear.
-        new Translation3d(Units.inchesToMeters(-12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(16.158)),
+        new Translation3d(Units.inchesToMeters(-12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(23)),
         new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Look rear-center
 
-        public static final Transform3d leftCameraOffset = new Transform3d(
-        new Translation3d(Units.inchesToMeters(-12), Units.inchesToMeters(12), Units.inchesToMeters(9.3)),
-        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-45) + Math.PI)); // Look rear-left
+    public static final Transform3d leftCameraOffset = new Transform3d(
+    // Side-mounted at left bumper edge on a 27x27 chassis, pitched up 20°.
+    // WPILib robot coords: +Y is left.
+    new Translation3d(0.0, Units.inchesToMeters(13.5), Units.inchesToMeters(18.3)),
+    new Rotation3d(0, Math.toRadians(-20), Math.toRadians(90))); // Face out robot-left
 
-        public static final Transform3d rightCameraOffset = new Transform3d(
-        new Translation3d(Units.inchesToMeters(-12), Units.inchesToMeters(-12), Units.inchesToMeters(9.3)),
-        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Look rear-right
+    public static final Transform3d rightCameraOffset = new Transform3d(
+    // Side-mounted at right bumper edge on a 27x27 chassis, pitched up 20°.
+    // WPILib robot coords: -Y is right.
+    new Translation3d(0.0, Units.inchesToMeters(-13.5), Units.inchesToMeters(18.3)),
+    new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-90))); // Face out robot-right
 
 
         // Standard deviation multipliers for each camera (lower = more trusted)
         // Index 0 = Main, 1 = Left, 2 = Right
         public static final double[] cameraStdDevFactors = new double[] {
                 1.0, // Main camera (most trusted - center position, best view)
-                1.5, // Left camera (slightly less trusted - side angle)
-                1.5  // Right camera (slightly less trusted - side angle)
+        2.2, // Left camera (side angle, less trusted than center)
+        2.2  // Right camera (side angle, less trusted than center)
         };
 
         // Multipliers to apply for MegaTag 2 observations
@@ -244,15 +258,18 @@ public class Constants {
         public static final double kI = 0.0;
         public static final double kD = 0.0;
 
-        public static final double turretCenterX = 8;
-        public static final double turretCenterY = 8;
+        // Shooter/turret center offset from robot center (meters, robot frame).
+        // +X forward, +Y left (WPILib convention).
+        public static final double shooterOffsetXMeters = Units.inchesToMeters(-6);
+        public static final double shooterOffsetYMeters = Units.inchesToMeters(-6);
     }
 
     public class constIntake {
         public static final int intakeMotorId = 41; // 41
         public static final int pivotMotorId = 42; // 42
 
-        public static final double dutyCycle = 0.75; // Duty cycle (0.0 to 1.0)
+        public static final double dutyCycle =
+         0.75; // Duty cycle (0.0 to 1.0)
 
         public static final double pivotKp = 1.0;
         public static final double pivotKi = 0.0;   
@@ -277,9 +294,24 @@ public class Constants {
 
     public class constKicker {
         public static final int kickerMotorId = 61; // 6x = Kicker system
-        
-        public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
-        public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
+
+        // Follower mapping: kickerTargetRPM = flywheelRPM * kickerRpmPerFlywheelRpm
+        // Includes kicker gear ratio compensation (1.18 reduction) and direction sign.
+        public static final double kickerRpmPerFlywheelRpm = -2;
+
+        // Allow enough RPM headroom so follower targets don't clip at high flywheel speed.
+        public static final double maxKickerRPM = 7000;
+        public static final double minKickerRPM = -maxKickerRPM;
+
+        public static final double dutyCycle = -0.8; // Duty cycle (0.0 to 1.0)
+        public static final double reverseDutyCycle = 0.4; // Duty cycle for reverse (unjam)
+
+        public static final double kP = 0.25;
+        public static final double kI = 0.0;
+        public static final double kD = 0.000;
+        public static final double kS = 0.0;
+        public static final double kV = 0.1;
+        public static final double kA = 0.0;
         
      
     }
@@ -289,46 +321,33 @@ public class Constants {
         public static final double maxFlywheelRPM = 5500;
         public static final double minFlywheelRPM = 0;
 
-        public static final double kP = 0.2;
+        public static final double kP = 0.3;
         public static final double kI = 0.0;
-        public static final double kD = 0.0;
-        public static final double kS = 0.555; 
-        public static final double kV = 0.127; 
-        public static final double kA = 0.1; 
+        public static final double kD = 0.00;
+        public static final double kS = 0.5; 
+        public static final double kV = 0.15; 
+        public static final double kA = 0.03; 
 
     }
 
     public class constBallisticSolver {
         // Shooter physical constants
-        public static final double shooterHeightMeters = Units.inchesToMeters(17.0625); // Height of shooter off ground (meters)
+        public static final double shooterHeightMeters = Units.inchesToMeters(23.25); // Height of shooter off ground (meters)
         public static final double gravity = 9.806; // m/s^2
         
         // Flywheel configuration
         public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
-        public static final double exitVelocityFactor = 1.0; // Tune this: ball exit speed / wheel surface speed
         public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
-        public static final double speedMod = 0.825; // Fine-tune multiplier applied after solver
 
-    // Empirical RPM compensation term (tune on field):
-    // Flight-time-based correction for drag losses (longer flight => more RPM).
-    public static final double rpmPerSecondOfFlightCompensation = 0.0;
+        // configs
+        public static final double exitVelocityFactor = 1.35; // Tune this: ball exit speed / wheel surface speed
+    public static final double speedMod = 1.0; // Legacy tuning constant (currently not used by BallisticSolver)
+    public static final double rpmPerSecondOfFlightCompensation = 0.0; // Linear add: + (this * flightTimeSec) RPM
 
         // RPM sweep constraints
-        public static final double minMotorRPM = 1000.0;
+        public static final double minMotorRPM = 500.0;
         public static final double maxMotorRPM = constFlywheel.maxFlywheelRPM;
         public static final double rpmStep = 50.0;
 
-        // Obstacle clearance gate — ball must clear the 6ft rim before entering the goal.
-        // rimOffsetMeters: how far the rim is in FRONT of the goal center (the rim is before the target).
-        // clearanceXMeters is computed dynamically each cycle as (range - rimOffsetMeters).
-        public static final double rimOffsetMeters  = Units.inchesToMeters(4); // Rim is ~12 inches in front of goal center
-        public static final double clearanceZMeters = Units.inchesToMeters(72); // 6 ft rim height
-
-        // Impact angle targeting (degrees, negative = descending)
-        // HIGH launch angle (lofted arc) clears the 6ft rim and drops steeply into the top of the goal.
-        // The solver now sweeps ALL RPMs and picks whichever solution is closest to desiredImpactAngleDeg.
-        public static final double desiredImpactAngleDeg = -80.0; // Ideal steep descent into goal top
-        public static final double impactBandMinDeg = -90.0;      // Steepest acceptable
-        public static final double impactBandMaxDeg = -70.0;      // Shallowest acceptable
     }
 }

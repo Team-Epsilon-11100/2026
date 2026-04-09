@@ -87,6 +87,7 @@ public class Intake extends SubsystemBase {
         SmartDashboard.putNumber("Intake/Current", intakeMotor.getSupplyCurrent().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Position", pivotMotor.getPosition().getValueAsDouble());
         SmartDashboard.putNumber("Pivot/Current", pivotMotor.getSupplyCurrent().getValueAsDouble());
+        SmartDashboard.putBoolean("Intake/IsDeployed", isDeployed());
     }
 }
 

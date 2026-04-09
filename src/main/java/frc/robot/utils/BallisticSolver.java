@@ -4,19 +4,14 @@ import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constHood;
 
 /**
- * BallisticSolver (RPM-first, LOWEST RPM that works, impact-angle prioritized)
+ * BallisticSolver (angle-first, high-arc preferred)
  *
- * GUARANTEED selection order:
- *  1) RPM is the OUTER LOOP. We sweep motor RPM low -> high.
- *  2) For each fixed RPM, we compute feasible launch angle(s) via quadratic formula.
- *  3) For that RPM, we choose the angle that BEST matches the desired impact angle.
- *  4) We return the FIRST RPM that yields an acceptable impact-angle solution.
- *
- * Impact-angle notes:
- *  - impactAngleDeg is the velocity angle at the target (negative = descending).
- *  - "60 deg descent" = impactAngleDeg = -60.
- *
- * Physics model: ideal projectile (no drag, no Magnus).
+ * Selection order:
+ *  1) Sweep launch angle from MAX -> MIN.
+ *  2) Compute required wheel speed for each angle.
+ *  3) Enforce wheel/motor speed limits.
+ *  4) Enforce minimum impact angle.
+ *  5) Return first valid (highest-angle) solution.
  */
 public class BallisticSolver {
 
@@ -28,31 +23,23 @@ public class BallisticSolver {
         public double shooterZMeters           = constBallisticSolver.shooterHeightMeters;
         public double g                        = constBallisticSolver.gravity;
 
-    // Launch angle limits (degrees above horizontal), derived from operating
-    // hood range (min to soft max) so solver obeys non-physical soft cap.
+    // Launch angle sweep (ballistic launch angle, deg above horizontal)
     public double minAngleDeg              = constHood.minLaunchAngleSoftDegrees;
     public double maxAngleDeg              = constHood.maxLaunchAngleSoftDegrees;
+        public double angleStepDeg             = 1.0;
+        public double minImpactAngleDeg        = 30.0;
 
         // Flywheel model
         public double flywheelDiameterMeters   = constBallisticSolver.flywheelDiameterMeters;
         public double exitVelocityFactor       = constBallisticSolver.exitVelocityFactor;
         public double gearRatioMotorToWheel    = constBallisticSolver.gearRatioMotorToWheel;
 
-        // RPM sweep
+        // Motor limits
         public double minMotorRpm              = constBallisticSolver.minMotorRPM;
         public double maxMotorRpm              = constBallisticSolver.maxMotorRPM;
-        public double rpmStep                  = constBallisticSolver.rpmStep;
 
-        // Impact-angle targeting
-        public boolean requireDescendingAtTarget = true;
-        public double desiredImpactAngleDeg    = constBallisticSolver.desiredImpactAngleDeg;
-        public double impactBandMinDeg         = constBallisticSolver.impactBandMinDeg;
-        public double impactBandMaxDeg         = constBallisticSolver.impactBandMaxDeg;
-
-        // Optional obstacle clearance (set both to 0 to disable)
-        // clearanceXMeters is set dynamically each cycle based on current range — do not use a static default.
-        public double clearanceZMeters         = constBallisticSolver.clearanceZMeters;
-        public double clearanceXMeters         = 0.0; // Set per-cycle in AutoElevationCommand
+    // Linear RPM compensation: add (rpmCompPerSecond * flightTimeSec)
+    public double rpmCompPerSecond         = constBallisticSolver.rpmPerSecondOfFlightCompensation;
     }
 
     // -----------------------------------------------------------------------
@@ -74,171 +61,128 @@ public class BallisticSolver {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Primary entry point
+    // -----------------------------------------------------------------------
     /**
-     * Simpler angle-first solver:
-     *  - Sweep hood angle high -> low (prefer lofted arcs)
-     *  - For each angle, compute required exit speed analytically
-     *  - Check RPM limits, optional clearance gate, and impact-angle validity
-     *  - Return first strict in-band hit; otherwise keep best relaxed hit
+    * Finds the highest valid launch angle in range, using the required wheel speed
+    * at each candidate angle.
+     *
+     * @param xMeters     horizontal X displacement to goal (metres)
+     * @param yMeters     horizontal Y displacement to goal (metres)
+     * @param goalZMeters absolute height of target (metres above floor)
+     * @param cfg         solver config (create once, reuse every cycle)
+     * @return best Solution, or Solution.invalid(...) if none found
      */
     public static Solution solveLowestRpmPreferImpact(
             double xMeters, double yMeters, double goalZMeters, Config cfg) {
-        return solveByAngleSweep(xMeters, yMeters, goalZMeters, cfg, cfg.maxAngleDeg, cfg.minAngleDeg, -1.0, "angle-sweep");
-    }
 
-    /**
-     * Keep compatibility with existing call sites.
-     * Strategy:
-     *  1) Try fixed min hood angle first (flat shot requirement)
-     *  2) If not feasible, fall back to simple high->low angle sweep.
-     */
-    public static Solution solveHoodMinThenRpmSweep(
-            double xMeters, double yMeters, double goalZMeters, Config cfg) {
-
-        double range  = Math.hypot(xMeters, yMeters);
+        double range = Math.hypot(xMeters, yMeters);
         double deltaZ = goalZMeters - cfg.shooterZMeters;
+
         if (range <= 0.0) {
             return Solution.invalid("range is zero");
         }
 
-        // First try the launch angle that corresponds to PHYSICAL hood minimum.
-        double launchAtHoodMin = constHood.hoodAngleToLaunchAngleDeg(constHood.minHoodAngleDegrees);
-        Solution fixedMin = solveForFixedAngle(range, deltaZ, launchAtHoodMin, cfg, "min-hood");
-        if (fixedMin.valid()) {
-            return fixedMin;
+        if (cfg.angleStepDeg <= 0.0) {
+            return Solution.invalid("angleStepDeg must be > 0");
         }
 
-        return solveByAngleSweep(xMeters, yMeters, goalZMeters, cfg, cfg.maxAngleDeg, cfg.minAngleDeg, -1.0, "fallback-sweep");
-    }
-
-    private static Solution solveByAngleSweep(
-            double xMeters,
-            double yMeters,
-            double goalZMeters,
-            Config cfg,
-            double startAngleDeg,
-            double endAngleDeg,
-            double stepDeg,
-            String reasonTag) {
-
-        double range  = Math.hypot(xMeters, yMeters);
-        double deltaZ = goalZMeters - cfg.shooterZMeters;
-        if (range <= 0.0) {
-            return Solution.invalid("range is zero");
+        double wheelRadius = cfg.flywheelDiameterMeters / 2.0;
+        if (wheelRadius <= 0.0) {
+            return Solution.invalid("flywheel diameter must be > 0");
         }
 
-        if (stepDeg == 0.0) {
-            return Solution.invalid("step cannot be zero");
-        }
+        double minWheelRps = (cfg.minMotorRpm / cfg.gearRatioMotorToWheel) / 60.0;
+        double maxWheelRps = (cfg.maxMotorRpm / cfg.gearRatioMotorToWheel) / 60.0;
 
-        Solution bestRelaxed = null;
-
-        for (double angle = startAngleDeg;
-             (stepDeg > 0 ? angle <= endAngleDeg + 1e-9 : angle >= endAngleDeg - 1e-9);
-             angle += stepDeg) {
-
-            if (angle < cfg.minAngleDeg || angle > cfg.maxAngleDeg) continue;
-
-            Solution s = solveForFixedAngle(range, deltaZ, angle, cfg, reasonTag);
-            if (!s.valid()) continue;
-
-            boolean inBand = s.impactAngleDeg() >= cfg.impactBandMinDeg
-                    && s.impactAngleDeg() <= cfg.impactBandMaxDeg;
-
-            // Prefer first strict solution during angle sweep (simple & deterministic)
-            if (inBand) {
-                return s;
+        for (double angleDeg = cfg.maxAngleDeg; angleDeg >= cfg.minAngleDeg - 1e-9; angleDeg -= cfg.angleStepDeg) {
+            double thetaRad = Math.toRadians(angleDeg);
+            double cosTheta = Math.cos(thetaRad);
+            if (cosTheta <= 1e-9) {
+                continue;
             }
 
-            // Keep best relaxed solution by proximity to desired impact
-            if (bestRelaxed == null
-                    || impactScore(s.impactAngleDeg(), cfg) > impactScore(bestRelaxed.impactAngleDeg(), cfg)) {
-                bestRelaxed = s;
+            // denominator = x*tan(theta) - y  (must be > 0)
+            double denominator = range * Math.tan(thetaRad) - deltaZ;
+            if (denominator <= 0.0) {
+                continue;
             }
-        }
 
-        if (bestRelaxed != null) return bestRelaxed;
-        return Solution.invalid("no trajectory found in angle range");
-    }
-
-    private static Solution solveForFixedAngle(
-            double range,
-            double deltaZ,
-            double angleDeg,
-            Config cfg,
-            String reasonTag) {
-
-        double angleRad = Math.toRadians(angleDeg);
-        double cos = Math.cos(angleRad);
-        double sin = Math.sin(angleRad);
-        double cos2 = cos * cos;
-
-        // denominator from projectile equation rearrangement
-        double denominator = range * Math.tan(angleRad) - deltaZ;
-        if (denominator <= 0 || cos2 <= 1e-12) {
-            return Solution.invalid("unreachable at angle");
-        }
-
-        // v^2 = g*R^2 / (2*cos^2(theta)*(R*tan(theta) - deltaZ))
-        double v2 = cfg.g * range * range / (2.0 * cos2 * denominator);
-        if (v2 <= 0) {
-            return Solution.invalid("invalid speed");
-        }
-
-        double exitSpeed = Math.sqrt(v2);
-        double wheelRpm = exitSpeedToWheelRpm(exitSpeed, cfg);
-        double idealMotorRpm = wheelRpmToMotorRpm(wheelRpm, cfg);
-
-        double vx = exitSpeed * cos;
-        double vy = exitSpeed * sin;
-        if (vx <= 1e-9) {
-            return Solution.invalid("vx too small");
-        }
-
-        double tFlight = range / vx;
-
-    // Empirical compensation:
-    //  - time-based term for drag (longer flight needs more exit energy)
-    double compensatedMotorRpm = idealMotorRpm
-        * (1.0 + constBallisticSolver.rpmPerSecondOfFlightCompensation * tFlight);
-
-    if (compensatedMotorRpm < cfg.minMotorRpm || compensatedMotorRpm > cfg.maxMotorRpm) {
-        return Solution.invalid("rpm out of range");
-    }
-
-        // Optional obstacle clearance
-        if (cfg.clearanceXMeters > 0 && cfg.clearanceZMeters > 0) {
-            double tClear = cfg.clearanceXMeters / vx;
-            double zAtClearance = cfg.shooterZMeters
-                    + vy * tClear
-                    - 0.5 * cfg.g * tClear * tClear;
-            if (zAtClearance < cfg.clearanceZMeters) {
-                return Solution.invalid("fails clearance");
+            // K = [1/(2*pi*r*cos(theta)*exitVelocityFactor)] * sqrt(g/2)
+            double k = (1.0 / (2.0 * Math.PI * wheelRadius * cosTheta * cfg.exitVelocityFactor))
+                    * Math.sqrt(cfg.g / 2.0);
+            double termUnderRadical = (range * range) / denominator;
+            if (termUnderRadical <= 0.0) {
+                continue;
             }
+
+            // Required wheel speed in RPS
+            double wheelRps = k * Math.sqrt(termUnderRadical);
+            if (wheelRps < minWheelRps || wheelRps > maxWheelRps) {
+                continue;
+            }
+
+            // Re-derive linear launch speed for impact-angle validation
+            double exitSpeed = wheelRpsToExitSpeed(wheelRps, cfg);
+            double vSinThetaSq = Math.pow(exitSpeed * Math.sin(thetaRad), 2);
+            double twoGY = 2.0 * cfg.g * deltaZ;
+
+            // Must reach target height
+            if (vSinThetaSq < twoGY) {
+                continue;
+            }
+
+            double impactNum = Math.sqrt(vSinThetaSq - twoGY);
+            double impactDen = exitSpeed * cosTheta;
+            if (impactDen <= 1e-9) {
+                continue;
+            }
+
+            // Positive magnitude like your script, convert to signed descending angle for telemetry
+            double impactAngleMagnitudeDeg = Math.toDegrees(Math.atan(impactNum / impactDen));
+            if (impactAngleMagnitudeDeg < cfg.minImpactAngleDeg) {
+                continue;
+            }
+
+            double baseWheelRpm = wheelRps * 60.0;
+            double baseMotorRpm = wheelRpmToMotorRpm(baseWheelRpm, cfg);
+            double vx = exitSpeed * cosTheta;
+            double tFlight = (vx > 1e-9) ? (range / vx) : 0.0;
+
+            // Linear compensation on top of solved RPM
+            // motorRpm = baseMotorRpm + (rpmCompPerSecond * flightTimeSec)
+            double compensationRpm = cfg.rpmCompPerSecond * tFlight;
+            double motorRpm = baseMotorRpm + compensationRpm;
+            if (motorRpm < cfg.minMotorRpm || motorRpm > cfg.maxMotorRpm) {
+                continue;
+            }
+            double wheelRpm = motorRpm / cfg.gearRatioMotorToWheel;
+
+            return new Solution(
+                    true,
+                    angleDeg,
+                    -impactAngleMagnitudeDeg,
+                    exitSpeed,
+                    wheelRpm,
+                    motorRpm,
+                    tFlight,
+                    "ok"
+            );
         }
 
-        // Impact angle at target (negative = descending)
-        double vyFinal = vy - cfg.g * tFlight;
-        double impactAngleDeg = Math.toDegrees(Math.atan2(vyFinal, vx));
-        if (cfg.requireDescendingAtTarget && impactAngleDeg >= 0) {
-            return Solution.invalid("not descending");
-        }
-
-        return new Solution(true, angleDeg, impactAngleDeg, exitSpeed, wheelRpm, compensatedMotorRpm, tFlight, reasonTag);
-    }
-
-    // -----------------------------------------------------------------------
-    // Physics helpers
-    // -----------------------------------------------------------------------
-
-    /** Higher score = impact angle is closer to desiredImpactAngleDeg. */
-    private static double impactScore(double impactAngleDeg, Config cfg) {
-        return -Math.abs(impactAngleDeg - cfg.desiredImpactAngleDeg);
+        return Solution.invalid("no trajectory found in RPM/angle range");
     }
 
     // -----------------------------------------------------------------------
     // Unit conversions (public for testing / dashboard use)
     // -----------------------------------------------------------------------
+
+    /** Wheel RPS -> ball exit speed (m/s). */
+    public static double wheelRpsToExitSpeed(double wheelRps, Config cfg) {
+        double wheelSurfaceSpeed = wheelRps * (Math.PI * cfg.flywheelDiameterMeters);
+        return wheelSurfaceSpeed * cfg.exitVelocityFactor;
+    }
 
     /** Motor RPM -> ball exit speed (m/s). */
     public static double motorRpmToExitSpeed(double motorRpm, Config cfg) {

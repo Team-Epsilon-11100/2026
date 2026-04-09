@@ -1,6 +1,7 @@
 package frc.robot.subsystems.hood;
 
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.controls.DynamicMotionMagicVoltage;
 import com.ctre.phoenix6.controls.MotionMagicExpoVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 
@@ -54,10 +55,9 @@ public class Hood extends SubsystemBase {
         hoodMotor.setControl(hoodPID.withPosition(position));
     }
     public void setAngle(double angle) {
-        // Clamp to commanded operating window BEFORE converting to motor position.
-        // Physical safety is still enforced independently by Talon software limits.
+        // Clamp angle to safe limits BEFORE converting to motor position
         double clampedAngle = Math.max(constHood.minHoodAngleDegrees, 
-                                       Math.min(angle, constHood.softMaxHoodAngleDegrees));
+                                       Math.min(angle, constHood.maxHoodAngleDegrees));
         setMotorPos(angleToMotorPos(clampedAngle));
     }
 

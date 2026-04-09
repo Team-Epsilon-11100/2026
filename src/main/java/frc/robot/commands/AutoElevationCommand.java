@@ -2,15 +2,19 @@ package frc.robot.commands;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants.constAutoAim;
 import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constHood;
 import frc.robot.Constants.constTurret;
+import frc.robot.Constants.constVision;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.subsystems.flywheel.Flywheel;
 import frc.robot.subsystems.hood.Hood;
@@ -20,13 +24,11 @@ import frc.robot.utils.BallisticSolver.Solution;
 import frc.robot.utils.BallisticSolver.Config;
 
 /**
- * Continuously calculates and applies auto-aiming adjustments to the hood and flywheel
- * based on the closest visible AprilTag. Runs as a default command, updating every cycle.
+ * Continuously calculates and applies auto-aiming flywheel adjustments while keeping
+ * the hood fixed at a steep angle. Runs as a default command, updating every cycle.
  *
- * Uses the ballistic solver: sweeps RPM low->high, picks the lowest launch angle at each
- * RPM (flat launch = steep descent arc), returns the first solution whose impact angle
- * lands in the configured band [-70, -45 deg]. Falls back to best-scoring descending
- * shot if no in-band solution exists.
+ * Uses the ballistic solver: sweeps RPM low->high, tries the highest launch angle at each
+ * RPM, and returns the first valid descending solution.
  */
 public class AutoElevationCommand extends Command {
     private final Hood hood;
@@ -36,10 +38,8 @@ public class AutoElevationCommand extends Command {
     // Reusable config object to avoid creating new objects every cycle
     private final Config config;
     
-    // Track last calculated values
-    // Start with the hood stowed (lowest safe angle). This ensures the mechanism
-    // begins in the down position unless it's already there.
-    private double lastTargetAngle = constHood.minHoodAngleDegrees;
+    // Fixed steep hood setting (mechanism angle), plus last valid RPM
+    private final double fixedHoodAngleDeg;
     private double lastTargetRpm = 5500.0; // Start at preferred RPM
 
     // Enable/disable flag - toggled by POV up
@@ -48,6 +48,9 @@ public class AutoElevationCommand extends Command {
     // Throttle dashboard updates (update every N cycles to reduce overhead)
     private int updateCounter = 0;
     private static final int UPDATE_PERIOD = 5; // Update dashboard every 5 cycles (~100ms)
+    private Rotation2d headingBias = new Rotation2d();
+    private Rotation2d lastOdomHeading = null;
+    private static final double ODOM_RESET_JUMP_DEG = 35.0;
     // Mirror minMotorRPM from constants so the valid-RPM check stays in sync
     private static final double MIN_VALID_RPM = constBallisticSolver.minMotorRPM;
     
@@ -58,7 +61,13 @@ public class AutoElevationCommand extends Command {
         
         // Create config once - uses values from Constants.constBallisticSolver
         this.config = new Config();
-        
+
+        // Lock solver to a single steep launch angle so hood does not move each cycle.
+        double fixedLaunchAngleDeg = constHood.maxLaunchAngleSoftDegrees;
+        this.config.minAngleDeg = fixedLaunchAngleDeg;
+        this.config.maxAngleDeg = fixedLaunchAngleDeg;
+
+        this.fixedHoodAngleDeg = constHood.launchAngleToHoodAngleDeg(fixedLaunchAngleDeg);
         // Require both Hood and Flywheel subsystems
         addRequirements(hood, flywheel);
     }
@@ -74,40 +83,55 @@ public class AutoElevationCommand extends Command {
 
     @Override
     public void initialize() {
+        hood.setAngle(fixedHoodAngleDeg);
+        headingBias = new Rotation2d();
+        lastOdomHeading = null;
         SmartDashboard.putString("AutoElev/Status", "Active");
         System.out.println("AutoElevation: Continuous auto-aiming started");
-
-        // Ensure hood is stowed at the minimum angle when the auto-elevation
-        // command first starts. If it's already at or below the minimum (within
-        // a small tolerance) leave it alone; otherwise command it to the min.
-        double current = hood.getAngle();
-        double minAngle = constHood.minHoodAngleDegrees;
-        if (current > minAngle + 0.5) { // 0.5° hysteresis to avoid chatter
-            hood.setAngle(minAngle);
-            lastTargetAngle = minAngle;
-        } else {
-            // Seed lastTargetAngle with the actual hood position so we don't
-            // unexpectedly jump if it's already near the min.
-            lastTargetAngle = current;
-        }
     }
     
     @Override
     public void execute() {
         if (!enabled) return; // Flywheel disabled - do nothing, motor already stopped in setEnabled()
-        double sp = constBallisticSolver.speedMod;
-        boolean isRedAlliance = DriverStation.getAlliance()
-                .map(a -> a == Alliance.Red)
-                .orElse(false);
 
-        if (!isRedAlliance) {
-            sp -= 0.05;
+        // Use fresh vision when available; preserve heading continuity across gyro resets.
+        Pose2d odomPose = drivetrain.getPose();
+        Pose2d visionPose = Vision.getLatestVisionPose();
+        double visionAgeSec = Timer.getFPGATimestamp() - Vision.getLatestVisionTimestamp();
+        boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
+
+        Rotation2d odomHeading = odomPose.getRotation();
+        boolean odomResetDetected = false;
+        if (lastOdomHeading != null) {
+            Rotation2d odomDelta = odomHeading.minus(lastOdomHeading);
+            if (Math.abs(odomDelta.getDegrees()) > ODOM_RESET_JUMP_DEG) {
+                headingBias = headingBias.minus(odomDelta);
+                odomResetDetected = true;
+            }
         }
-        // Get current robot pose from drivetrain odometry
-        Pose2d robotPose = drivetrain.getPose();
+        lastOdomHeading = odomHeading;
+
+        if (hasFreshVisionPose) {
+            headingBias = visionPose.getRotation().minus(odomHeading);
+        }
+
+        Translation2d robotTranslation = hasFreshVisionPose
+            ? visionPose.getTranslation()
+            : odomPose.getTranslation();
+        Rotation2d robotHeading = odomHeading.plus(headingBias);
+        Pose2d poseForAim = new Pose2d(robotTranslation, robotHeading);
+
+        // Compute shooter/turret center field position from robot center + robot-frame offset.
+        Translation2d shooterOffsetRobot = new Translation2d(
+            constTurret.shooterOffsetXMeters,
+            constTurret.shooterOffsetYMeters
+        );
+        Translation2d shooterPosField = robotTranslation.plus(
+            shooterOffsetRobot.rotateBy(robotHeading)
+        );
         
-        // Get closest visible tag using current robot pose
-        Pose3d targetPose = Vision.getClosestVisibleTag(robotPose);
+        // Get closest visible tag using the same pose basis as aiming
+        Pose3d targetPose = Vision.getClosestVisibleTag(poseForAim);
         
         // Increment update counter
         updateCounter++;
@@ -123,14 +147,14 @@ public class AutoElevationCommand extends Command {
             }
             
             // ALWAYS command motors with last valid settings
-            hood.setAngle(lastTargetAngle);
-            flywheel.setFlywheelRpm(lastTargetRpm * sp);
+            hood.setAngle(fixedHoodAngleDeg);
+            flywheel.setFlywheelRpm(lastTargetRpm);
             return;
         }
 
         // Calculate horizontal distance to target
-        double xMeters = targetPose.getX() - robotPose.getX();
-        double yMeters = targetPose.getY() - robotPose.getY();
+    double xMeters = targetPose.getX() - shooterPosField.getX();
+    double yMeters = targetPose.getY() - shooterPosField.getY();
         
         // Determine goal height based on testing/competition mode
         double goalZMeters;
@@ -141,38 +165,19 @@ public class AutoElevationCommand extends Command {
             // COMPETITION: Select the same 3D target that AutoYawCommand uses —
             // HUB center normally, or the nearest ferry point when in the neutral zone.
             // This ensures elevation and yaw always agree on the target.
-          
-            Translation3d target = selectTarget(robotPose.getX() + constTurret.turretCenterX, robotPose.getY() + constTurret.turretCenterY, isRedAlliance);
-            xMeters    = target.getX() - robotPose.getX();
-            yMeters    = target.getY() - robotPose.getY();
+            boolean isRedAlliance = DriverStation.getAlliance()
+                .map(a -> a == Alliance.Red)
+                .orElse(false);
+            Translation3d target = selectTarget(poseForAim.getX(), poseForAim.getY(), isRedAlliance);
+            xMeters    = target.getX() - shooterPosField.getX();
+            yMeters    = target.getY() - shooterPosField.getY();
             goalZMeters = target.getZ();
         }
-
-        // If we're in competition mode, prefer using the hood only when inside
-        // the neutral zone. Outside the neutral zone we will keep the hood at
-        // its minimum angle but still allow the flywheel to spin (flat shots).
-        boolean forceHoodMin = false;
-        if (!constAutoAim.useTagCenterForTesting) {
-            boolean inNeutralZone = robotPose.getX() >= constAutoAim.neutralZoneMinX
-                    && robotPose.getX() <= constAutoAim.neutralZoneMaxX;
-            if (!inNeutralZone) {
-                forceHoodMin = true;
-                if (updateCounter == 0) {
-                    SmartDashboard.putString("AutoElev/Status", "Out of neutral zone - hood forced min");
-                }
-            }
-        }
         
-        // Solve ballistics: set clearanceXMeters dynamically so the rim check is always
-        // at the correct downrange position regardless of how far the robot is from the goal.
-        // The rim sits rimOffsetMeters in front of the goal center, so the clearance gate
-        // is at (range - rimOffset) metres from the shooter.
-        double range = Math.hypot(xMeters, yMeters);
-        config.clearanceXMeters = Math.max(0.1, range - constBallisticSolver.rimOffsetMeters);
-
-        Solution s = BallisticSolver.solveHoodMinThenRpmSweep(
-            xMeters,
-            yMeters,
+    // Solve ballistics: prefer highest launch angle at each RPM
+        Solution s = BallisticSolver.solveLowestRpmPreferImpact(
+            xMeters, 
+            yMeters, 
             goalZMeters,
             config
         );
@@ -180,34 +185,31 @@ public class AutoElevationCommand extends Command {
         if (s.valid() && s.motorRpm() > MIN_VALID_RPM) {
             // Valid solution found - apply to subsystems immediately
             lastTargetRpm = s.motorRpm();
-
-            if (forceHoodMin) {
-                lastTargetAngle = constHood.minHoodAngleDegrees;
-                hood.setAngle(lastTargetAngle);
-            } else {
-                // Solver returns LAUNCH angle (deg above horizontal).
-                // Convert to mechanism hood angle using Constants convention.
-                lastTargetAngle = constHood.launchAngleToHoodAngleDeg(s.launchAngleDeg());
-                hood.setAngle(lastTargetAngle);
-            }
-
-            flywheel.setFlywheelRpm(lastTargetRpm * sp); // Apply speed modifier
+            
+            hood.setAngle(fixedHoodAngleDeg);
+            flywheel.setFlywheelRpm(lastTargetRpm);
             
             // Update dashboard only periodically to reduce overhead
             if (shouldUpdateDashboard) {
                 SmartDashboard.putString("AutoElev/Status", "Tracking");
-                SmartDashboard.putNumber("AutoElev/TargetAngle", lastTargetAngle); // hood mechanism angle
-                SmartDashboard.putNumber("AutoElev/HoodAngleCmd", lastTargetAngle);
-                SmartDashboard.putNumber("AutoElev/LaunchAngleSolver", s.launchAngleDeg());
+                SmartDashboard.putNumber("AutoElev/TargetAngle", fixedHoodAngleDeg);
+                SmartDashboard.putNumber("AutoElev/LaunchAngle", s.launchAngleDeg());
                 SmartDashboard.putNumber("AutoElev/TargetRPM", lastTargetRpm);
                 SmartDashboard.putNumber("AutoElev/Distance", Math.hypot(xMeters, yMeters));
                 SmartDashboard.putNumber("AutoElev/ExitSpeed", s.exitSpeedMps());
                 SmartDashboard.putNumber("AutoElev/ImpactAngle", s.impactAngleDeg());
+                SmartDashboard.putNumber("AutoElev/ShooterFieldX", shooterPosField.getX());
+                SmartDashboard.putNumber("AutoElev/ShooterFieldY", shooterPosField.getY());
+                SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", hasFreshVisionPose);
+                SmartDashboard.putBoolean("AutoElev/UsingVisionTranslation", hasFreshVisionPose);
+                SmartDashboard.putNumber("AutoElev/VisionPoseAgeSec", visionAgeSec);
+                SmartDashboard.putBoolean("AutoElev/OdomResetDetected", odomResetDetected);
+                SmartDashboard.putNumber("AutoElev/HeadingBiasDeg", headingBias.getDegrees());
             }
         } else {
             // No valid solution or RPM too low - use last valid settings
-            hood.setAngle(constHood.minHoodAngleDegrees);
-            flywheel.setFlywheelRpm(lastTargetRpm * sp);
+            hood.setAngle(fixedHoodAngleDeg);
+            flywheel.setFlywheelRpm(lastTargetRpm);
             
             if (shouldUpdateDashboard) {
                 String reason = s.valid() ? "RPM too low" : s.reason();

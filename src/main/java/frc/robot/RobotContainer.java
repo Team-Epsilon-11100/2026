@@ -4,22 +4,11 @@
 
 package frc.robot;
 
-import com.ctre.phoenix6.swerve.SwerveRequest;
-import com.pathplanner.lib.auto.AutoBuilder;
-import com.pathplanner.lib.config.PIDConstants;
-import com.pathplanner.lib.config.RobotConfig;
-import com.pathplanner.lib.controllers.PPHolonomicDriveController;
-import com.pathplanner.lib.path.PathPlannerPath;
-
-import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
-import frc.robot.Constants.constAutoAim;
 import frc.robot.Constants.constDrivetrain;
-import frc.robot.Constants.constFlywheel;
-import frc.robot.Constants.constHood;
 import frc.robot.Constants.constIndexer;
 import frc.robot.Constants.constIntake;
 import frc.robot.Constants.constKicker;
@@ -29,6 +18,7 @@ import frc.robot.Constants.constVision;
 import frc.robot.commands.AutoElevationCommand;
 import frc.robot.commands.AutoYawCommand;
 import frc.robot.commands.DriveCommand;
+import frc.robot.commands.PumpIntakeCommand;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.subsystems.flywheel.Flywheel;
@@ -50,19 +40,18 @@ public class RobotContainer {
   private final Kicker kicker;
   private final Indexer indexer;
   private final Turret turret;
-  private final SwerveRequest.ApplyRobotSpeeds autoRobotSpeeds = new SwerveRequest.ApplyRobotSpeeds();
 
   // Controllers
   private final CommandXboxController driverController = new CommandXboxController(constDrivetrain.joystickPort);
+
+  // Intake toggle state
+  private boolean intakeDeployed = true; // starts deployed (matches intake.deploy() in constructor)
 
   // Flywheel/auto-aim toggle state
   private boolean flywheelEnabled = true;
 
   // Turret manual nudge state (testing only — POV left/right)
   private double turretTargetAngle = 0.0; // degrees, 0 = forward
-
-  // Pump intake toggle state (starts deployed)
-  private boolean pumpMode = false; // false = deployed, true = pumped
 
   public RobotContainer() {
     // Initialize drivetrain
@@ -81,8 +70,6 @@ public class RobotContainer {
     kicker = new Kicker();
     indexer = new Indexer();
     turret = new Turret();
-
-  configurePathPlanner();
     
     intake.deploy(); // Start with intake deployed
       indexer.setDutyCycle(constIndexer.idleDutyCycle);
@@ -90,45 +77,24 @@ public class RobotContainer {
     configureBindings();
   }
 
-  private void configurePathPlanner() {
-    try {
-      RobotConfig robotConfig = RobotConfig.fromGUISettings();
-
-      AutoBuilder.configure(
-      () -> drivetrain.getBestAvailablePose(vision),
-          drivetrain::resetPose,
-          () -> drivetrain.getState().Speeds,
-      (speeds, feedforwards) -> drivetrain.setControl(autoRobotSpeeds.withSpeeds(speeds)),
-          new PPHolonomicDriveController(
-              new PIDConstants(5.0, 0.0, 0.0),
-              new PIDConstants(5.0, 0.0, 0.0)),
-          robotConfig,
-          () -> DriverStation.getAlliance().map(a -> a == DriverStation.Alliance.Red).orElse(false),
-          drivetrain);
-
-      SmartDashboard.putString("Auto/PathPlanner", "Configured");
-    } catch (Exception e) {
-      SmartDashboard.putString("Auto/PathPlanner", "Config failed: " + e.getMessage());
-      System.out.println("PathPlanner configuration failed: " + e.getMessage());
-    }
-  }
-
   private void configureBindings() {
-    // Default command: Advanced drive with heading lock, input curves, and slow mode
-    // B button held = half speed mode
+    // Default command: Advanced drive with heading lock, input curves, and slow
+    // mode
     drivetrain.setDefaultCommand(
         new DriveCommand(
             drivetrain,
-            () -> -driverController.getLeftY(),
-            () -> -driverController.getLeftX(),
-            () -> -driverController.getRightX(),
-            driverController.b(), // B held = half speed
-            constDrivetrain.maxSpeed,
-            constDrivetrain.maxAngularRate,
-            vision
+            () -> -driverController.getLeftY(), // Forward/backward (negated for correct direction)
+            () -> -driverController.getLeftX(), // Left/right (negated for correct direction)
+            () -> -driverController.getRightX(), // Rotation (negated for correct direction)
+            driverController.b(), // Slow drive mode (hold left bumper)
+            constDrivetrain.maxSpeed, // Max speed
+            constDrivetrain.maxAngularRate, // Max angular rate
+            vision // Vision subsyst em
         ));
 
     // Default command: Continuous auto-aiming based on closest visible AprilTag
+    // Runs automatically, no button press needed
+    // This will continuously command both hood and flywheel with calculated values
     AutoElevationCommand autoElevation = new AutoElevationCommand(hood, flywheel, drivetrain);
     hood.setDefaultCommand(
         Commands.waitUntil(intake::isDeployed).andThen(autoElevation));
@@ -142,13 +108,12 @@ public class RobotContainer {
         })
     );
 
-    turret.setDefaultCommand(
-        Commands.waitUntil(intake::isDeployed).andThen(new AutoYawCommand(turret, drivetrain)));
+  // Keep yaw active continuously so turret aiming can't be blocked by intake-state tolerance.
+  turret.setDefaultCommand(new AutoYawCommand(turret, drivetrain));
 
-    // Right trigger: shoot (kicker + indexer)
     driverController.rightTrigger().whileTrue(
-        Commands.runOnce(() -> {
-          kicker.setDutyCycle(constKicker.dutyCycle);
+        Commands.run(() -> {
+          kicker.setFromFlywheelRpm(flywheel.getFlywheelRpm());
           indexer.setDutyCycle(constIndexer.dutyCycle);
         }, kicker, indexer)).whileFalse(
             Commands.runOnce(() -> {
@@ -156,8 +121,8 @@ public class RobotContainer {
               indexer.setDutyCycle(constIndexer.idleDutyCycle);
             }, kicker, indexer));
 
-    // A: run intake while held, stop when released
-    driverController.a().whileTrue(
+    // Right bumper: run intake while held, stop when released
+    driverController.rightBumper().whileTrue(
         Commands.runOnce(() -> {
           intake.setDutyCycle(constIntake.dutyCycle);
         }, intake)
@@ -167,32 +132,24 @@ public class RobotContainer {
         }, intake)
     );
 
-    // B: half speed mode (handled in DriveCommand) + stow hood to minimum angle while held
-    driverController.b().whileTrue(
-        Commands.run(() -> hood.setAngle(constHood.minHoodAngleDegrees), hood)
-    ).onFalse(
-        Commands.runOnce(() -> {}, hood) // release hood back to default command
-    );
+    // Left bumper: toggle intake deploy/retract on each press
+    // driverController.leftBumper().onTrue(
+    //     Commands.runOnce(() -> {
+    //       if (intakeDeployed) {
+    //         intake.retract();
+    //       } else {
+    //         intake.deploy();
+    //       }
+    //       intakeDeployed = !intakeDeployed;
+    //     }, intake)
+    // );
 
-    // Y button: Toggle pump mode (deployed <-> pumped position)
-    driverController.y().onTrue(
-        Commands.runOnce(() -> {
-          pumpMode = !pumpMode;
-          if (pumpMode) {
-            // Move to pumped position
-            intake.setPivotPos(constIntake.pumpPos);
-            SmartDashboard.putString("Intake/PumpMode", "PUMPED");
-          } else {
-            // Return to deployed position
-            intake.setPivotPos(constIntake.deployedPos);
-            SmartDashboard.putString("Intake/PumpMode", "DEPLOYED");
-          }
-          SmartDashboard.putBoolean("Intake/PumpToggle", pumpMode);
-        }, intake)
-    );
+    // Left trigger: Pump intake while held, retract when released
+    driverController.leftTrigger().whileTrue(
+        new PumpIntakeCommand(intake));
 
     // POV down: reverse kicker and indexer while held (unjam)
-    driverController.x().whileTrue(
+    driverController.povDown().whileTrue(
         Commands.runOnce(() -> {
           kicker.setDutyCycle(constKicker.reverseDutyCycle);
           indexer.setDutyCycle(constIndexer.reverseDutyCycle);
@@ -204,20 +161,13 @@ public class RobotContainer {
         }, kicker, indexer)
     );
 
-    // Start or Back: reset gyro heading (treat current facing as field forward)
-    driverController.start().onTrue(
-        Commands.runOnce(() -> drivetrain.seedFieldCentric(), drivetrain)
-    );
-    driverController.back ().onTrue(
-        Commands.runOnce(() -> drivetrain.seedFieldCentric(), drivetrain)
-    );
-
-    // POV left/right: nudge turret by ±15° for testing
+    // POV left/right: nudge turret by ±15° for testing (AutoYaw disabled)
+    // Wraps around: going past +180° jumps to -180° and vice versa
     driverController.povLeft().onTrue(
         Commands.runOnce(() -> {
           turretTargetAngle -= 15.0;
           if (turretTargetAngle < constTurret.minTurretAngleDegrees) {
-            turretTargetAngle += 360.0;
+            turretTargetAngle += 360.0; // wrap: -195° → +165°
           }
           turret.setAngle(turretTargetAngle);
           SmartDashboard.putNumber("Turret/TargetAngle", turretTargetAngle);
@@ -228,7 +178,7 @@ public class RobotContainer {
         Commands.runOnce(() -> {
           turretTargetAngle += 15.0;
           if (turretTargetAngle > constTurret.maxTurretAngleDegrees) {
-            turretTargetAngle -= 360.0;
+            turretTargetAngle -= 360.0; // wrap: +195° → -165°
           }
           turret.setAngle(turretTargetAngle);
           SmartDashboard.putNumber("Turret/TargetAngle", turretTargetAngle);
@@ -237,60 +187,6 @@ public class RobotContainer {
   }
 
   public Command getAutonomousCommand() {
-    try {
-      PathPlannerPath path = PathPlannerPath.fromPathFile("Example Path");
-      Command followPath = AutoBuilder.followPath(path);
-
-      // Periodic autonomous mode switch:
-      // - Neutral zone: run intake
-      // - Alliance side: run shooter (flywheel + indexer + kicker)
-      Command zoneAction = Commands.run(() -> {
-        var pose = drivetrain.getBestAvailablePose(vision);
-        double x = pose.getX();
-        boolean inNeutralZone = x >= constAutoAim.neutralZoneMinX && x <= constAutoAim.neutralZoneMaxX;
-        boolean isRed = DriverStation.getAlliance().map(a -> a == DriverStation.Alliance.Red).orElse(false);
-        boolean onAllianceSide = isRed ? (x > constAutoAim.neutralZoneMaxX) : (x < constAutoAim.neutralZoneMinX);
-
-        if (inNeutralZone) {
-          // Intake mode in neutral zone
-          intake.setDutyCycle(constIntake.dutyCycle);
-          flywheel.stop();
-          kicker.stop();
-          indexer.setDutyCycle(constIndexer.idleDutyCycle);
-          SmartDashboard.putString("Auto/ZoneMode", "NEUTRAL_INTAKE");
-        } else if (onAllianceSide) {
-          // Shoot mode on alliance side
-          intake.stopIntake();
-          flywheel.setFlywheelRpm(constFlywheel.maxFlywheelRPM);
-          kicker.setDutyCycle(constKicker.dutyCycle);
-          indexer.setDutyCycle(constIndexer.dutyCycle);
-          SmartDashboard.putString("Auto/ZoneMode", "ALLIANCE_SHOOT");
-        } else {
-          // Opponent side / undefined zone: safe idle
-          intake.stopIntake();
-          flywheel.stop();
-          kicker.stop();
-          indexer.setDutyCycle(constIndexer.idleDutyCycle);
-          SmartDashboard.putString("Auto/ZoneMode", "SAFE_IDLE");
-        }
-      }, intake, flywheel, kicker, indexer);
-
-      Command cleanup = Commands.runOnce(() -> {
-        intake.stopIntake();
-        flywheel.stop();
-        kicker.stop();
-        indexer.setDutyCycle(constIndexer.idleDutyCycle);
-        SmartDashboard.putString("Auto/ZoneMode", "DONE");
-      }, intake, flywheel, kicker, indexer);
-
-      return Commands.sequence(
-          Commands.runOnce(intake::deploy, intake),
-      Commands.deadline(followPath, zoneAction),
-          cleanup);
-    } catch (Exception e) {
-      SmartDashboard.putString("Auto/PathPlanner", "Path load failed: " + e.getMessage());
-      System.out.println("Failed to load Example Path: " + e.getMessage());
-      return Commands.none();
-    }
+    return Commands.print("No autonomous command configured");
   }
 }
