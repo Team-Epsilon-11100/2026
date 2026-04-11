@@ -225,22 +225,20 @@ public class Constants {
         public static final double maxTurretAngleDegrees =  180.0;  // CCW limit
         public static final double minTurretAngleDegrees = -180.0;  // CW limit
 
-        // Measured motor positions at known angles (from physical testing)
-        //  -0.5 rot  =  180° (CCW hard stop)
-        // -21.1 rot  =    0° (forward / home)
-        // -42.2 rot  = -180° (CW hard stop)
-        public static final double homeMotorPos      = -21.1; // motor rotations at 0° (forward)
-        public static final double maxTurretMotorPos =  -0.5; // motor rotations at +180° (software forward limit)
-        public static final double minTurretMotorPos = -42.2; // motor rotations at -180° (software reverse limit)
+        // Turret gear reduction: motor rotations per 1 turret rotation.
+        public static final double turretGearReduction = 125/3;
 
-        // Conversion: motor rotations per degree.
-        // Derived from measured endpoints through the home position:
-        //   +180° → -0.5 rot   ⟹  factor = (-0.5 - (-21.1)) / 180  = +0.11444 rot/deg
-        //   -180° → -42.2 rot  ⟹  factor = (-42.2 - (-21.1)) / -180 = +0.11722 rot/deg
-        // Use the CCW half (0° → +180°) as the reference since that is the home side.
-        // Positive value: motor position increases (less negative) as angle increases (CCW).
-        public static final double angleToPosFactor =
-            (maxTurretMotorPos - homeMotorPos) / maxTurretAngleDegrees; // +0.11444 rot/deg
+        // Motor position offset (rotations) when turret is physically at 0° (forward).
+        // Keep this as your zero-reference calibration constant.
+        public static final double homeMotorPos = -21.1;
+
+        // Conversion: motor rotations per turret degree.
+        // Rotations_motor = (turretAngleDeg / 360) * turretGearReduction
+        public static final double angleToPosFactor = turretGearReduction / 360.0;
+
+        // Software limits derived directly from angle limits + gear ratio.
+        public static final double maxTurretMotorPos = homeMotorPos + (maxTurretAngleDegrees * angleToPosFactor);
+        public static final double minTurretMotorPos = homeMotorPos + (minTurretAngleDegrees * angleToPosFactor);
 
         public static final double lookaheadTimeMs = 200;
 
@@ -316,7 +314,7 @@ public class Constants {
         public static final double kD = 0.000;
         public static final double kS = 0.0;
         public static final double kV = 0.1;
-        public static final double kA = 0.0;
+        public static final double kA = 0.1;
         
      
     }

@@ -85,9 +85,8 @@ public class Turret extends SubsystemBase {
 
     /**
      * Convert angle (degrees) to motor position (rotations).
-     * 0° = forward = homeMotorPos (-21.1).
-     * Positive angle (CCW) = less negative motor position (toward -0.5).
-     * Negative angle (CW)  = more negative motor position (toward -42.2).
+     * Uses fixed gear-ratio mapping:
+     * motorRot = homeMotorPos + angleDeg * (turretGearReduction / 360).
      */
     private double angleToMotorPos(double angleDegrees) {
         return constTurret.homeMotorPos + (angleDegrees * constTurret.angleToPosFactor);

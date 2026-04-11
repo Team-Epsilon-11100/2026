@@ -23,6 +23,7 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.constVision;
@@ -47,6 +48,7 @@ public class Vision extends SubsystemBase {
     // Latest vision-estimated robot pose - accessible to all subsystems
     private static Pose2d latestVisionPose = null;
     private static double latestVisionTimestamp = 0.0;
+    private static double latestVisionCaptureTimestamp = 0.0;
     
     // Static reference to the Vision subsystem instance for accessing camera inputs
     private static Vision instance = null;
@@ -83,7 +85,7 @@ public class Vision extends SubsystemBase {
     }
 
     /**
-     * Returns the timestamp of the latest vision pose estimate.
+     * Returns the FPGA timestamp when the latest vision pose was received/updated.
      * 
      * @return Timestamp in seconds, or 0.0 if no valid vision data is available
      */
@@ -194,6 +196,8 @@ public class Vision extends SubsystemBase {
 
         // Track all accepted poses for logging
         List<Pose3d> allAcceptedPoses = new LinkedList<>();
+    Pose2d newestAcceptedPoseThisCycle = null;
+    double newestCaptureTimestampThisCycle = Double.NEGATIVE_INFINITY;
         
         // Log camera connection status and tag counts for debugging
         int totalVisibleTags = 0;
@@ -266,9 +270,12 @@ public class Vision extends SubsystemBase {
                 cameraAcceptedPoses.add(floorPose3d);
 
                 // ===== UPDATE STORED POSE: Track latest vision estimate =====
-                if (observation.timestamp() > latestVisionTimestamp) {
-                    latestVisionPose = floorPose2d;
-                    latestVisionTimestamp = observation.timestamp();
+                // Choose newest observation in THIS periodic cycle using capture timestamp,
+                // then stamp freshness with FPGA time below. This avoids latch-ups when camera
+                // timestamps reset, stall, or are not strictly monotonic relative to robot time.
+                if (observation.timestamp() >= newestCaptureTimestampThisCycle) {
+                    newestAcceptedPoseThisCycle = floorPose2d;
+                    newestCaptureTimestampThisCycle = observation.timestamp();
                 }
 
                 // ===== CALCULATE STANDARD DEVIATIONS: Determine confidence =====
@@ -308,6 +315,13 @@ public class Vision extends SubsystemBase {
             allAcceptedPoses.addAll(cameraAcceptedPoses);
         }
 
+        // Publish newest accepted pose from this cycle (if any) and mark freshness by FPGA time.
+        if (newestAcceptedPoseThisCycle != null) {
+            latestVisionPose = newestAcceptedPoseThisCycle;
+            latestVisionCaptureTimestamp = newestCaptureTimestampThisCycle;
+            latestVisionTimestamp = Timer.getFPGATimestamp();
+        }
+
         // ===== LOGGING: Summary data =====
         Logger.recordOutput("Vision/AllAcceptedPoses", allAcceptedPoses.toArray(new Pose3d[0]));
         
@@ -319,18 +333,21 @@ public class Vision extends SubsystemBase {
                 new Rotation3d(0, 0, latestVisionPose.getRotation().getRadians())
             ));
             Logger.recordOutput("Vision/LatestPoseTimestamp", latestVisionTimestamp);
+            Logger.recordOutput("Vision/LatestPoseCaptureTimestamp", latestVisionCaptureTimestamp);
 
-            // Publish to SmartDashboard as a double array [x, y, headingDeg, timestamp]
+            // Publish to SmartDashboard as a double array [x, y, headingDeg, fpgaTimestamp]
             SmartDashboard.putNumberArray("Vision/Pose", new double[] {
                 latestVisionPose.getX(),
                 latestVisionPose.getY(),
                 latestVisionPose.getRotation().getDegrees(),
                 latestVisionTimestamp
             });
+            SmartDashboard.putNumber("Vision/LatestCaptureTimestamp", latestVisionCaptureTimestamp);
         } else {
             SmartDashboard.putNumberArray("Vision/Pose", new double[] {
                 Double.NaN, Double.NaN, Double.NaN, 0.0
             });
+            SmartDashboard.putNumber("Vision/LatestCaptureTimestamp", 0.0);
         }
     }
 

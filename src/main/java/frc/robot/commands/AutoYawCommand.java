@@ -53,15 +53,18 @@ public class AutoYawCommand extends Command {
         double visionAgeSec = Timer.getFPGATimestamp() - visionTimestamp;
         boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
 
-        // Always use drivetrain heading for yaw math (gyro/odometry), even when using
-        // vision translation. This prevents frozen/stale vision heading from locking target yaw.
-        Rotation2d robotHeading = odomPose.getRotation();
-        Translation2d robotTranslation = hasFreshVisionPose
-            ? visionPose.getTranslation()
-            : odomPose.getTranslation();
-
         executeCounter++;
         SmartDashboard.putNumber("AutoYaw/ExecuteCounter", executeCounter);
+
+        SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
+        SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", hasFreshVisionPose);
+        SmartDashboard.putBoolean("AutoYaw/UsingVisionTranslation", hasFreshVisionPose);
+        SmartDashboard.putNumber("AutoYaw/VisionPoseAgeSec", visionAgeSec);
+        SmartDashboard.putNumber("AutoYaw/VisionTimestamp", visionTimestamp);
+
+        Pose2d poseForAim = hasFreshVisionPose ? visionPose : odomPose;
+        Rotation2d robotHeading = poseForAim.getRotation();
+        Translation2d robotTranslation = poseForAim.getTranslation();
 
         // Aim from shooter/turret center rather than robot center.
         Translation2d shooterOffsetRobot = new Translation2d(
@@ -72,13 +75,7 @@ public class AutoYawCommand extends Command {
             shooterOffsetRobot.rotateBy(robotHeading)
         );
 
-        // Log both so you can verify camera heading vs estimator heading.
-        SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
-        SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg",   odomPose.getRotation().getDegrees());
-    SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", false);
-        SmartDashboard.putBoolean("AutoYaw/UsingVisionTranslation", hasFreshVisionPose);
-        SmartDashboard.putNumber("AutoYaw/VisionPoseAgeSec", visionAgeSec);
-        SmartDashboard.putNumber("AutoYaw/VisionTimestamp", visionTimestamp);
+    SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg", odomPose.getRotation().getDegrees());
         SmartDashboard.putNumber("AutoYaw/HeadingInnovationDeg", 0.0);
         SmartDashboard.putBoolean("AutoYaw/OdomResetDetected", false);
         SmartDashboard.putNumber("AutoYaw/HeadingBiasDeg", 0.0);
@@ -102,7 +99,7 @@ public class AutoYawCommand extends Command {
         double rawTurretYaw = robotRelativeTargetAngle + constTurret.turretAngleOffsetDegrees;
         double targetAngle = normalizeTo180(rawTurretYaw);
 
-        SmartDashboard.putString("AutoYaw/Status", "Tracking alliance HUB");
+    SmartDashboard.putString("AutoYaw/Status", hasFreshVisionPose ? "Tracking alliance HUB (Vision)" : "Tracking alliance HUB (Odom Fallback)");
         SmartDashboard.putNumber("AutoYaw/TargetX", hubTarget.getX());
         SmartDashboard.putNumber("AutoYaw/TargetY", hubTarget.getY());
         SmartDashboard.putNumber("AutoYaw/TargetZ", hubTarget.getZ());

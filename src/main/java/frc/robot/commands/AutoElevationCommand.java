@@ -88,11 +88,14 @@ public class AutoElevationCommand extends Command {
     public void execute() {
         if (!enabled) return; // Flywheel disabled - do nothing, motor already stopped in setEnabled()
 
-        // Use published vision pose directly when fresh, otherwise fall back to odometry.
+        // Prefer fresh vision pose, but fall back to odometry pose if vision is stale.
         Pose2d odomPose = drivetrain.getPose();
         Pose2d visionPose = Vision.getLatestVisionPose();
-        double visionAgeSec = Timer.getFPGATimestamp() - Vision.getLatestVisionTimestamp();
+        double visionTimestamp = Vision.getLatestVisionTimestamp();
+        double visionAgeSec = Timer.getFPGATimestamp() - visionTimestamp;
         boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
+        SmartDashboard.putNumber("AutoElev/GyroHeadingDeg", odomPose.getRotation().getDegrees());
+
         Pose2d poseForAim = hasFreshVisionPose ? visionPose : odomPose;
         Translation2d robotTranslation = poseForAim.getTranslation();
         Rotation2d robotHeading = poseForAim.getRotation();
@@ -134,7 +137,7 @@ public class AutoElevationCommand extends Command {
             
             // Update dashboard only periodically to reduce overhead
             if (shouldUpdateDashboard) {
-                SmartDashboard.putString("AutoElev/Status", "Tracking");
+                SmartDashboard.putString("AutoElev/Status", hasFreshVisionPose ? "Tracking (Vision)" : "Tracking (Odom Fallback)");
                 SmartDashboard.putNumber("AutoElev/TargetAngle", fixedHoodAngleDeg);
                 SmartDashboard.putNumber("AutoElev/LaunchAngle", s.launchAngleDeg());
                 SmartDashboard.putNumber("AutoElev/TargetRPM", lastTargetRpm);
@@ -149,6 +152,7 @@ public class AutoElevationCommand extends Command {
                 SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", hasFreshVisionPose);
                 SmartDashboard.putBoolean("AutoElev/UsingVisionTranslation", hasFreshVisionPose);
                 SmartDashboard.putNumber("AutoElev/VisionPoseAgeSec", visionAgeSec);
+                SmartDashboard.putNumber("AutoElev/VisionTimestamp", visionTimestamp);
                 SmartDashboard.putBoolean("AutoElev/OdomResetDetected", false);
                 SmartDashboard.putNumber("AutoElev/HeadingBiasDeg", 0.0);
             }

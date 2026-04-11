@@ -6,7 +6,6 @@ import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constKicker;
 
 public class Kicker extends SubsystemBase {
@@ -57,28 +56,21 @@ public class Kicker extends SubsystemBase {
     public void setKickerRpm(double rpm) {
         double clampedRpm = Math.max(constKicker.minKickerRPM, Math.min(rpm, constKicker.maxKickerRPM));
         lastTargetRpm = clampedRpm;
-        kickerMotor.setControl(kickerPID.withVelocity(clampedRpm / 60.0));
+        kickerMotor.setControl(kickerPID.withVelocity(-clampedRpm / 60.0));
     }
 
     /**
-     * Follow flywheel wheel surface speed.
-     * Input is flywheel motor RPM; output is kicker motor RPM computed from physical ratios.
+     * Directly mirror flywheel motor RPM.
      */
     public void setFromFlywheelRpm(double flywheelRpm) {
         lastFlywheelInputRpm = flywheelRpm;
-        double flywheelWheelRpm = flywheelRpm / constBallisticSolver.gearRatioMotorToWheel;
-        double flywheelSurfaceSpeedMps = (flywheelWheelRpm / 60.0) * (Math.PI * constBallisticSolver.flywheelDiameterMeters);
-
-        double kickerWheelRpm = (flywheelSurfaceSpeedMps * 60.0) / (Math.PI * constKicker.wheelDiameterMeters);
-        double kickerMotorRpm = kickerWheelRpm * constKicker.gearRatioMotorToWheel * constKicker.surfaceSpeedSign;
-
-        lastTargetSurfaceSpeedMps = flywheelSurfaceSpeedMps;
-        setKickerRpm(kickerMotorRpm);
+        lastTargetSurfaceSpeedMps = 0.0;
+        setKickerRpm(flywheelRpm);
     }
 
     /** Get measured kicker speed in motor RPM. */
     public double getKickerRpm() {
-        return kickerMotor.getVelocity().getValueAsDouble() * 60.0;
+        return -kickerMotor.getVelocity().getValueAsDouble() * 60.0;
     }
 
 
