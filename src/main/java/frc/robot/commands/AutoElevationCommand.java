@@ -1,7 +1,6 @@
 package frc.robot.commands;
 
 import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
@@ -48,9 +47,6 @@ public class AutoElevationCommand extends Command {
     // Throttle dashboard updates (update every N cycles to reduce overhead)
     private int updateCounter = 0;
     private static final int UPDATE_PERIOD = 5; // Update dashboard every 5 cycles (~100ms)
-    private Rotation2d headingBias = new Rotation2d();
-    private Rotation2d lastOdomHeading = null;
-    private static final double ODOM_RESET_JUMP_DEG = 35.0;
     // Mirror minMotorRPM from constants so the valid-RPM check stays in sync
     private static final double MIN_VALID_RPM = constBallisticSolver.minMotorRPM;
     
@@ -84,8 +80,6 @@ public class AutoElevationCommand extends Command {
     @Override
     public void initialize() {
         hood.setAngle(fixedHoodAngleDeg);
-        headingBias = new Rotation2d();
-        lastOdomHeading = null;
         SmartDashboard.putString("AutoElev/Status", "Active");
         System.out.println("AutoElevation: Continuous auto-aiming started");
     }
@@ -94,33 +88,14 @@ public class AutoElevationCommand extends Command {
     public void execute() {
         if (!enabled) return; // Flywheel disabled - do nothing, motor already stopped in setEnabled()
 
-        // Use fresh vision when available; preserve heading continuity across gyro resets.
+        // Use published vision pose directly when fresh, otherwise fall back to odometry.
         Pose2d odomPose = drivetrain.getPose();
         Pose2d visionPose = Vision.getLatestVisionPose();
         double visionAgeSec = Timer.getFPGATimestamp() - Vision.getLatestVisionTimestamp();
         boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
-
-        Rotation2d odomHeading = odomPose.getRotation();
-        boolean odomResetDetected = false;
-        if (lastOdomHeading != null) {
-            Rotation2d odomDelta = odomHeading.minus(lastOdomHeading);
-            if (Math.abs(odomDelta.getDegrees()) > ODOM_RESET_JUMP_DEG) {
-                headingBias = headingBias.minus(odomDelta);
-                odomResetDetected = true;
-            }
-        }
-        lastOdomHeading = odomHeading;
-
-        if (hasFreshVisionPose) {
-            headingBias = visionPose.getRotation().minus(odomHeading);
-        }
-
-        Translation2d robotTranslation = hasFreshVisionPose
-            ? visionPose.getTranslation()
-            : odomPose.getTranslation();
-        Rotation2d robotHeading = odomHeading.plus(headingBias);
-        Pose2d poseForAim = new Pose2d(robotTranslation, robotHeading);
-
+        Pose2d poseForAim = hasFreshVisionPose ? visionPose : odomPose;
+        Translation2d robotTranslation = poseForAim.getTranslation();
+        Rotation2d robotHeading = poseForAim.getRotation();
         // Compute shooter/turret center field position from robot center + robot-frame offset.
         Translation2d shooterOffsetRobot = new Translation2d(
             constTurret.shooterOffsetXMeters,
@@ -130,9 +105,6 @@ public class AutoElevationCommand extends Command {
             shooterOffsetRobot.rotateBy(robotHeading)
         );
         
-        // Get closest visible tag using the same pose basis as aiming
-        Pose3d targetPose = Vision.getClosestVisibleTag(poseForAim);
-        
         // Increment update counter
         updateCounter++;
         boolean shouldUpdateDashboard = (updateCounter >= UPDATE_PERIOD);
@@ -140,39 +112,10 @@ public class AutoElevationCommand extends Command {
             updateCounter = 0;
         }
         
-        if (targetPose == null) {
-            // No tags visible - maintain last settings and ALWAYS command motors
-            if (shouldUpdateDashboard) {
-                SmartDashboard.putString("AutoElev/Status", "No tags visible - using last");
-            }
-            
-            // ALWAYS command motors with last valid settings
-            hood.setAngle(fixedHoodAngleDeg);
-            flywheel.setFlywheelRpm(lastTargetRpm);
-            return;
-        }
-
-        // Calculate horizontal distance to target
-    double xMeters = targetPose.getX() - shooterPosField.getX();
-    double yMeters = targetPose.getY() - shooterPosField.getY();
-        
-        // Determine goal height based on testing/competition mode
-        double goalZMeters;
-        if (constAutoAim.useTagCenterForTesting) {
-            // TESTING: Aim directly at the AprilTag center (absolute Z position from field)
-            goalZMeters = targetPose.getZ();
-        } else {
-            // COMPETITION: Select the same 3D target that AutoYawCommand uses —
-            // HUB center normally, or the nearest ferry point when in the neutral zone.
-            // This ensures elevation and yaw always agree on the target.
-            boolean isRedAlliance = DriverStation.getAlliance()
-                .map(a -> a == Alliance.Red)
-                .orElse(false);
-            Translation3d target = selectTarget(poseForAim.getX(), poseForAim.getY(), isRedAlliance);
-            xMeters    = target.getX() - shooterPosField.getX();
-            yMeters    = target.getY() - shooterPosField.getY();
-            goalZMeters = target.getZ();
-        }
+        Translation3d hubTarget = getAllianceHubTarget();
+        double xMeters = hubTarget.getX() - shooterPosField.getX();
+        double yMeters = hubTarget.getY() - shooterPosField.getY();
+        double goalZMeters = hubTarget.getZ();
         
     // Solve ballistics: prefer highest launch angle at each RPM
         Solution s = BallisticSolver.solveLowestRpmPreferImpact(
@@ -195,6 +138,9 @@ public class AutoElevationCommand extends Command {
                 SmartDashboard.putNumber("AutoElev/TargetAngle", fixedHoodAngleDeg);
                 SmartDashboard.putNumber("AutoElev/LaunchAngle", s.launchAngleDeg());
                 SmartDashboard.putNumber("AutoElev/TargetRPM", lastTargetRpm);
+                SmartDashboard.putNumber("AutoElev/TargetX", hubTarget.getX());
+                SmartDashboard.putNumber("AutoElev/TargetY", hubTarget.getY());
+                SmartDashboard.putNumber("AutoElev/TargetZ", hubTarget.getZ());
                 SmartDashboard.putNumber("AutoElev/Distance", Math.hypot(xMeters, yMeters));
                 SmartDashboard.putNumber("AutoElev/ExitSpeed", s.exitSpeedMps());
                 SmartDashboard.putNumber("AutoElev/ImpactAngle", s.impactAngleDeg());
@@ -203,8 +149,8 @@ public class AutoElevationCommand extends Command {
                 SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", hasFreshVisionPose);
                 SmartDashboard.putBoolean("AutoElev/UsingVisionTranslation", hasFreshVisionPose);
                 SmartDashboard.putNumber("AutoElev/VisionPoseAgeSec", visionAgeSec);
-                SmartDashboard.putBoolean("AutoElev/OdomResetDetected", odomResetDetected);
-                SmartDashboard.putNumber("AutoElev/HeadingBiasDeg", headingBias.getDegrees());
+                SmartDashboard.putBoolean("AutoElev/OdomResetDetected", false);
+                SmartDashboard.putNumber("AutoElev/HeadingBiasDeg", 0.0);
             }
         } else {
             // No valid solution or RPM too low - use last valid settings
@@ -224,20 +170,12 @@ public class AutoElevationCommand extends Command {
         return false;
     }
 
-    /**
-     * Mirrors AutoYawCommand.selectTarget so both commands always agree on the target.
-     * Hub center normally; nearest ferry point when in the neutral zone.
-     */
-    private Translation3d selectTarget(double robotX, double robotY, boolean isRed) {
-        if (robotX >= constAutoAim.neutralZoneMinX && robotX <= constAutoAim.neutralZoneMaxX) {
-            boolean closerToRight = robotY < (constAutoAim.fieldWidth / 2.0);
-            if (isRed) {
-                return closerToRight ? constAutoAim.redFerryPointRight : constAutoAim.redFerryPointLeft;
-            } else {
-                return closerToRight ? constAutoAim.blueFerryPointRight : constAutoAim.blueFerryPointLeft;
-            }
-        }
-        return isRed ? constAutoAim.redHubPosition : constAutoAim.blueHubPosition;
+    /** Returns the current alliance hub target (always hub, never nearest tag/ferry). */
+    private Translation3d getAllianceHubTarget() {
+        boolean isRedAlliance = DriverStation.getAlliance()
+            .map(a -> a == Alliance.Red)
+            .orElse(false);
+        return isRedAlliance ? constAutoAim.redHubPosition : constAutoAim.blueHubPosition;
     }
 
     @Override

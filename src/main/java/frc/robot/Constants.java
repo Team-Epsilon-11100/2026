@@ -22,8 +22,8 @@ public class Constants {
         public static final boolean useTagCenterForTesting = false;
 
         // HUB positions on the field (x, y, z) in meters
-        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(160-30),  4.04, Units.inchesToMeters(79));
-        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(651.2-179.1+12), 4.04, Units.inchesToMeters(79));
+        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(183),  4.04, Units.inchesToMeters(183));
+        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(183), 4.04, Units.inchesToMeters(183));
 
         // Neutral zone (between the BUMPS) - X bounds only, full field width
         // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
@@ -66,7 +66,10 @@ public class Constants {
     public static final double maxAmbiguity = 0.60;
     public static final double maxZError = 3.0; // Loosened to accept more camera-based solves (Photon handles quality)
     public static final double fieldBoundsMarginMeters = 1.0; // Allow slight out-of-field noise near borders
-    public static final double latestVisionMaxAgeSec = 0.30; // Ignore stale vision pose after 300ms
+    public static final double latestVisionMaxAgeSec = 0.12; // Ignore stale vision pose after 300ms
+    // AutoYaw heading fusion tuning (vision heading into odom heading bias)
+    public static final double maxHeadingInnovationDeg = 45.0; // Reject abrupt heading jumps bigger than this
+    public static final double headingBiasBlendAlpha = 0.12; // 0..1, lower = smoother/safer, higher = faster correction
 
         // Tag filtering for auto-alignment
         public static final double maxTagDistance = 5.0; // Maximum distance to consider tags (meters)
@@ -249,7 +252,7 @@ public class Constants {
         //   pointing CW of target  → increase this value
         //   pointing CCW of target → decrease this value
     
-        public static final double turretAngleOffsetDegrees = 90+15;
+        public static final double turretAngleOffsetDegrees = 90;
      
         
 
@@ -282,6 +285,7 @@ public class Constants {
 
         // Pump timing
         public static final double pumpDelaySeconds = 0.5; // Time to wait between deployed and pumped positions
+        public static final double deployWaitTimeoutSeconds = 5.0; // Fallback timeout before allowing shooter to run
     }
 
     public class constIndexer {
@@ -295,9 +299,10 @@ public class Constants {
     public class constKicker {
         public static final int kickerMotorId = 61; // 6x = Kicker system
 
-        // Follower mapping: kickerTargetRPM = flywheelRPM * kickerRpmPerFlywheelRpm
-        // Includes kicker gear ratio compensation (1.18 reduction) and direction sign.
-        public static final double kickerRpmPerFlywheelRpm = -2;
+        // Physical surface-speed follower constants.
+        public static final double wheelDiameterMeters = Units.inchesToMeters(4.0); // 4-inch kicker wheel
+        public static final double gearRatioMotorToWheel = 2.0; // 2:1 reduction => motor spins 2x wheel speed
+        public static final double surfaceSpeedSign = -1.0; // Keeps current wiring/mechanical direction convention
 
         // Allow enough RPM headroom so follower targets don't clip at high flywheel speed.
         public static final double maxKickerRPM = 7000;
@@ -340,7 +345,7 @@ public class Constants {
         public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
 
         // configs
-        public static final double exitVelocityFactor = 1.35; // Tune this: ball exit speed / wheel surface speed
+        public static final double exitVelocityFactor = 1.25; // Tune this: ball exit speed / wheel surface speed
     public static final double speedMod = 1.0; // Legacy tuning constant (currently not used by BallisticSolver)
     public static final double rpmPerSecondOfFlightCompensation = 0.0; // Linear add: + (this * flightTimeSec) RPM
 

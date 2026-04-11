@@ -226,32 +226,21 @@ public class Vision extends SubsystemBase {
                     continue;
                 }
 
-                // ===== FILTERING: Reject invalid observations =====
-                boolean rejectPose = 
-                    observation.tagCount() == 0 ||  // Must have at least one tag
-                    (observation.tagCount() == 1 && observation.ambiguity() > constVision.maxAmbiguity) || // Single tag with high ambiguity
-                    Math.abs(observation.pose().getZ()) > constVision.maxZError || // Unrealistic Z height
-                    observation.pose().getX() < 0.0 ||  // Outside field boundaries
-                    observation.pose().getX() > constVision.aprilTagLayout.getFieldLength() ||
-                    observation.pose().getY() < 0.0 ||
-                    observation.pose().getY() > constVision.aprilTagLayout.getFieldWidth();
+                // ===== FILTERING: Accept all observed tag-based poses =====
+                // Intentionally disabled quality/alliance filtering so every tag observation
+                // can contribute to pose estimation during bring-up.
+                boolean rejectPose = observation.tagCount() == 0;
 
                 // Debug: Log why poses are rejected
                 if (rejectPose) {
                     if (observation.tagCount() == 0) {
                         SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "No tags");
-                    } else if (observation.tagCount() == 1 && observation.ambiguity() > constVision.maxAmbiguity) {
-                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
-                            "Ambiguity: " + String.format("%.2f", observation.ambiguity()));
-                    } else if (Math.abs(observation.pose().getZ()) > constVision.maxZError) {
-                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
-                            "Z error: " + String.format("%.2fm", observation.pose().getZ()));
                     } else {
-                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Out of bounds");
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Rejected");
                     }
                     continue;  // Skip rejected observations
                 } else {
-                    SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Accepted");
+                    SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Accepted (NoFiltering)");
                 }
 
                 // ===== POSE ESTIMATION: Convert 3D pose to 2D floor pose =====

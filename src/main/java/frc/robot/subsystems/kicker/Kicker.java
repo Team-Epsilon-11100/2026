@@ -6,6 +6,7 @@ import com.ctre.phoenix6.controls.MotionMagicVelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.Constants.constBallisticSolver;
 import frc.robot.Constants.constKicker;
 
 public class Kicker extends SubsystemBase {
@@ -13,6 +14,7 @@ public class Kicker extends SubsystemBase {
     private final MotionMagicVelocityVoltage kickerPID;
     private double lastTargetRpm = 0.0;
     private double lastFlywheelInputRpm = 0.0;
+    private double lastTargetSurfaceSpeedMps = 0.0;
     
     public Kicker() {
         kickerMotor = new TalonFX(constKicker.kickerMotorId);
@@ -58,10 +60,20 @@ public class Kicker extends SubsystemBase {
         kickerMotor.setControl(kickerPID.withVelocity(clampedRpm / 60.0));
     }
 
-    /** Follow the flywheel speed with configurable ratio/sign compensation. */
+    /**
+     * Follow flywheel wheel surface speed.
+     * Input is flywheel motor RPM; output is kicker motor RPM computed from physical ratios.
+     */
     public void setFromFlywheelRpm(double flywheelRpm) {
         lastFlywheelInputRpm = flywheelRpm;
-        setKickerRpm(flywheelRpm * constKicker.kickerRpmPerFlywheelRpm);
+        double flywheelWheelRpm = flywheelRpm / constBallisticSolver.gearRatioMotorToWheel;
+        double flywheelSurfaceSpeedMps = (flywheelWheelRpm / 60.0) * (Math.PI * constBallisticSolver.flywheelDiameterMeters);
+
+        double kickerWheelRpm = (flywheelSurfaceSpeedMps * 60.0) / (Math.PI * constKicker.wheelDiameterMeters);
+        double kickerMotorRpm = kickerWheelRpm * constKicker.gearRatioMotorToWheel * constKicker.surfaceSpeedSign;
+
+        lastTargetSurfaceSpeedMps = flywheelSurfaceSpeedMps;
+        setKickerRpm(kickerMotorRpm);
     }
 
     /** Get measured kicker speed in motor RPM. */
@@ -82,7 +94,7 @@ public class Kicker extends SubsystemBase {
     public void periodic() {
         // Log kicker status to SmartDashboard
         SmartDashboard.putNumber("Kicker/FlywheelInputRPM", lastFlywheelInputRpm);
-        SmartDashboard.putNumber("Kicker/FollowerRatio", constKicker.kickerRpmPerFlywheelRpm);
+        SmartDashboard.putNumber("Kicker/TargetSurfaceSpeedMps", lastTargetSurfaceSpeedMps);
         SmartDashboard.putNumber("Kicker/TargetRPM", lastTargetRpm);
         SmartDashboard.putNumber("Kicker/RPM", getKickerRpm());
         SmartDashboard.putNumber("Kicker/Current", kickerMotor.getSupplyCurrent().getValueAsDouble());

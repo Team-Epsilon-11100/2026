@@ -97,7 +97,9 @@ public class RobotContainer {
     // This will continuously command both hood and flywheel with calculated values
     AutoElevationCommand autoElevation = new AutoElevationCommand(hood, flywheel, drivetrain);
     hood.setDefaultCommand(
-        Commands.waitUntil(intake::isDeployed).andThen(autoElevation));
+    Commands.waitUntil(intake::isDeployed)
+      .withTimeout(constIntake.deployWaitTimeoutSeconds)
+      .andThen(autoElevation));
 
     // POV up: toggle flywheel/auto-aim on or off
     driverController.povUp().onTrue(

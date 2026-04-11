@@ -1,7 +1,6 @@
 package frc.robot.commands;
 
 import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
@@ -16,35 +15,22 @@ import frc.robot.Constants.constVision;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.subsystems.turret.Turret;
 import frc.robot.subsystems.vision.Vision;
-import frc.robot.utils.CalculateYaw;
 
 /**
- * Continuously aims the turret using one of two modes:
+ * Continuously aims the turret at the current alliance HUB center.
  *
- * TEST MODE (constAutoAim.useTagYawForTesting = true):
- *   Aims directly at the closest visible AprilTag. Simple and useful for verifying
- *   turret mechanics, PID, and coordinate system without relying on odometry.
- *   Holds last known angle when no tag is visible.
+ * Pose source preference:
+ *  - use fresh vision translation/heading when available;
+ *  - otherwise fall back to odometry with heading-bias continuity through gyro resets.
  *
- * COMPETITION MODE (constAutoAim.useTagYawForTesting = false):
- *   Uses drivetrain odometry fused with vision to determine the robot's field position,
- *   then selects the correct target:
- *     - Outside neutral zone: aim straight at alliance HUB center.
- *     - Inside neutral zone (X between 4.59–11.95m, between the BUMPS): aim at the
- *       lateral ferry midpoint closest to the nearest guardrail, so the ball arcs
- *       safely into the HUB from the side.
- *   Kinematic compensation (robot velocity lookahead) is applied automatically via
- *   CalculateYaw.aimWithLookahead.
- *
- * Both modes apply the same ±180° angle wrapping used by the manual POV nudge buttons.
+ * The resulting robot-relative yaw is offset and wrapped to the turret's [-180, 180]
+ * operating range before commanding turret position.
  */
 public class AutoYawCommand extends Command {
 
     private final Turret turret;
     private final Drivetrain drivetrain;
-    private Rotation2d headingBias = new Rotation2d();
-    private Rotation2d lastOdomHeading = null;
-    private static final double ODOM_RESET_JUMP_DEG = 35.0;
+    private long executeCounter = 0;
 
     public AutoYawCommand(Turret turret, Drivetrain drivetrain) {
         this.turret = turret;
@@ -54,46 +40,28 @@ public class AutoYawCommand extends Command {
 
     @Override
     public void initialize() {
+        executeCounter = 0;
         SmartDashboard.putString("AutoYaw/Status", "Active");
-        headingBias = new Rotation2d();
-        lastOdomHeading = null;
-        System.out.println("AutoYaw: started (mode=" +
-            (constAutoAim.useTagYawForTesting ? "TAG-TEST" : "COMPETITION") + ")");
+        System.out.println("AutoYaw: started (HUB target mode)");
     }
 
     @Override
     public void execute() {
         Pose2d odomPose = drivetrain.getPose();
         Pose2d visionPose = Vision.getLatestVisionPose();
-        double visionAgeSec = Timer.getFPGATimestamp() - Vision.getLatestVisionTimestamp();
+        double visionTimestamp = Vision.getLatestVisionTimestamp();
+        double visionAgeSec = Timer.getFPGATimestamp() - visionTimestamp;
         boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
 
-        Rotation2d odomHeading = odomPose.getRotation();
-
-        // Detect abrupt odometry heading jumps (gyro reset/re-zero) and preserve continuous aim heading.
-        boolean odomResetDetected = false;
-        if (lastOdomHeading != null) {
-            Rotation2d odomDelta = odomHeading.minus(lastOdomHeading);
-            if (Math.abs(odomDelta.getDegrees()) > ODOM_RESET_JUMP_DEG) {
-                headingBias = headingBias.minus(odomDelta);
-                odomResetDetected = true;
-            }
-        }
-        lastOdomHeading = odomHeading;
-
-        // Re-anchor heading bias whenever fresh vision is available.
-        if (hasFreshVisionPose) {
-            headingBias = visionPose.getRotation().minus(odomHeading);
-        }
-
-        // Vision-anchored heading estimate: odom + bias.
-        Rotation2d robotHeading = odomHeading.plus(headingBias);
-
-        // Keep using fresh vision translation for XY when available.
+        // Always use drivetrain heading for yaw math (gyro/odometry), even when using
+        // vision translation. This prevents frozen/stale vision heading from locking target yaw.
+        Rotation2d robotHeading = odomPose.getRotation();
         Translation2d robotTranslation = hasFreshVisionPose
             ? visionPose.getTranslation()
             : odomPose.getTranslation();
-        Pose2d poseForAim = new Pose2d(robotTranslation, robotHeading);
+
+        executeCounter++;
+        SmartDashboard.putNumber("AutoYaw/ExecuteCounter", executeCounter);
 
         // Aim from shooter/turret center rather than robot center.
         Translation2d shooterOffsetRobot = new Translation2d(
@@ -105,105 +73,42 @@ public class AutoYawCommand extends Command {
         );
 
         // Log both so you can verify camera heading vs estimator heading.
-    SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
-    SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg",   odomHeading.getDegrees());
-    SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", hasFreshVisionPose);
+        SmartDashboard.putNumber("AutoYaw/VisionHeadingDeg", visionPose != null ? visionPose.getRotation().getDegrees() : Double.NaN);
+        SmartDashboard.putNumber("AutoYaw/GyroHeadingDeg",   odomPose.getRotation().getDegrees());
+    SmartDashboard.putBoolean("AutoYaw/UsingVisionHeading", false);
         SmartDashboard.putBoolean("AutoYaw/UsingVisionTranslation", hasFreshVisionPose);
         SmartDashboard.putNumber("AutoYaw/VisionPoseAgeSec", visionAgeSec);
-    SmartDashboard.putBoolean("AutoYaw/OdomResetDetected", odomResetDetected);
-    SmartDashboard.putNumber("AutoYaw/HeadingBiasDeg", headingBias.getDegrees());
+        SmartDashboard.putNumber("AutoYaw/VisionTimestamp", visionTimestamp);
+        SmartDashboard.putNumber("AutoYaw/HeadingInnovationDeg", 0.0);
+        SmartDashboard.putBoolean("AutoYaw/OdomResetDetected", false);
+        SmartDashboard.putNumber("AutoYaw/HeadingBiasDeg", 0.0);
 
-        // Intentionally disable velocity/omega lookahead so yaw depends only on camera pose.
-        double vx = 0.0;
-        double vy = 0.0;
-        double omega = 0.0;
+        Translation3d hubTarget = getAllianceHubTarget();
 
-        double targetAngle;
+        // Direct hub-yaw logic:
+        // 1) field-relative target angle = atan2(HUB_Y - robotY, HUB_X - robotX)
+        // 2) robot-relative target angle = field angle - camera heading
+        // 3) apply turret mounting offset
+        // 4) normalize to [-180, 180]
+        double robotX = shooterPosField.getX();
+        double robotY = shooterPosField.getY();
+        double cameraHeading = robotHeading.getDegrees();
 
-        if (constAutoAim.useTagYawForTesting) {
-            // ── TEST MODE ────────────────────────────────────────────────────────────
-            // Aim at the closest visible AprilTag using vision only.
-            Pose3d tag = Vision.getClosestVisibleTag(poseForAim);
+        double dx = hubTarget.getX() - robotX;
+        double dy = hubTarget.getY() - robotY;
 
-            if (tag == null) {
-                // No tag visible — fall back to competition target selection instead of freezing.
-                double robotX = poseForAim.getX();
-                double robotY = poseForAim.getY();
+        double fieldRelativeTargetAngle = Math.toDegrees(Math.atan2(dy, dx));
+        double robotRelativeTargetAngle = fieldRelativeTargetAngle - cameraHeading;
+        double rawTurretYaw = robotRelativeTargetAngle + constTurret.turretAngleOffsetDegrees;
+        double targetAngle = normalizeTo180(rawTurretYaw);
 
-                boolean isRed = DriverStation.getAlliance()
-                    .map(a -> a == Alliance.Red)
-                    .orElse(false);
-
-                Translation3d target3d = selectTarget(robotX, robotY, isRed);
-                Translation2d targetPos = new Translation2d(target3d.getX(), target3d.getY());
-
-                CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
-                    shooterPosField,
-                    robotHeading,
-                    vx,
-                    vy,
-                    omega,
-                    targetPos,
-                    constTurret.lookaheadTimeMs / 1000.0
-                );
-
-                targetAngle = aim.robotRelativeAngle().getDegrees();
-                SmartDashboard.putString("AutoYaw/Status", "TEST: No tag - fallback target");
-                SmartDashboard.putNumber("AutoYaw/TargetX", target3d.getX());
-                SmartDashboard.putNumber("AutoYaw/TargetY", target3d.getY());
-            } else {
-                CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
-                    shooterPosField,
-                    robotHeading,
-                    vx,
-                    vy,
-                    omega,
-                    tag.getTranslation().toTranslation2d(),
-                    constTurret.lookaheadTimeMs / 1000.0
-                );
-
-                targetAngle = aim.robotRelativeAngle().getDegrees();
-                SmartDashboard.putString("AutoYaw/Status", "TEST: Tracking tag");
-            }
-
-        } else {
-            // ── COMPETITION MODE ─────────────────────────────────────────────────────
-            // Select target from odometry position: HUB or ferry point in neutral zone.
-            double robotX = poseForAim.getX();
-            double robotY = poseForAim.getY();
-
-            boolean isRed = DriverStation.getAlliance()
-                .map(a -> a == Alliance.Red)
-                .orElse(false);
-
-            Translation3d target3d = selectTarget(robotX, robotY, isRed);
-            Translation2d targetPos = new Translation2d(target3d.getX(), target3d.getY());
-
-            CalculateYaw.AimAngles aim = CalculateYaw.aimWithLookahead(
-                shooterPosField,
-                robotHeading,
-                vx,
-                vy,
-                omega,
-                targetPos,
-                constTurret.lookaheadTimeMs / 1000.0
-            );
-
-            targetAngle = aim.robotRelativeAngle().getDegrees();
-
-            boolean inNeutralZone = isInNeutralZone(robotX);
-            SmartDashboard.putString("AutoYaw/Status",        inNeutralZone ? "COMP: Ferry" : "COMP: HUB");
-            SmartDashboard.putBoolean("AutoYaw/InNeutralZone", inNeutralZone);
-            SmartDashboard.putNumber("AutoYaw/TargetX",        target3d.getX());
-            SmartDashboard.putNumber("AutoYaw/TargetY",        target3d.getY());
-        }
-
-        // ── ANGLE WRAPPING ───────────────────────────────────────────────────────────
-        // Apply mounting offset to correct for turret physical zero vs gyro zero mismatch,
-        // then keep targetAngle in [-180, +180] before sending to turret.
-        targetAngle += constTurret.turretAngleOffsetDegrees;
-        while (targetAngle > constTurret.maxTurretAngleDegrees)  targetAngle -= 360.0;
-        while (targetAngle < constTurret.minTurretAngleDegrees)  targetAngle += 360.0;
+        SmartDashboard.putString("AutoYaw/Status", "Tracking alliance HUB");
+        SmartDashboard.putNumber("AutoYaw/TargetX", hubTarget.getX());
+        SmartDashboard.putNumber("AutoYaw/TargetY", hubTarget.getY());
+        SmartDashboard.putNumber("AutoYaw/TargetZ", hubTarget.getZ());
+        SmartDashboard.putNumber("AutoYaw/FieldRelativeTargetAngle", fieldRelativeTargetAngle);
+        SmartDashboard.putNumber("AutoYaw/RobotRelativeTargetAngle", robotRelativeTargetAngle);
+        SmartDashboard.putNumber("AutoYaw/RawTurretYaw", rawTurretYaw);
 
         turret.setAngle(targetAngle);
 
@@ -214,28 +119,19 @@ public class AutoYawCommand extends Command {
         SmartDashboard.putNumber("AutoYaw/ShooterFieldY",    shooterPosField.getY());
     }
 
-    /**
-     * Selects the 3D target for competition mode.
-     *
-     * Neutral zone (X between the BUMPS): aim at the ferry midpoint on whichever
-     * side of the HUB is closer to the robot's current Y (nearest guardrail).
-     * Outside neutral zone: aim straight at alliance HUB center.
-     */
-    private Translation3d selectTarget(double robotX, double robotY, boolean isRed) {
-        if (isInNeutralZone(robotX)) {
-            boolean closerToRight = robotY < (constAutoAim.fieldWidth / 2.0); // right = y=0 side
-            if (isRed) {
-                return closerToRight ? constAutoAim.redFerryPointRight : constAutoAim.redFerryPointLeft;
-            } else {
-                return closerToRight ? constAutoAim.blueFerryPointRight : constAutoAim.blueFerryPointLeft;
-            }
-        }
+    /** Returns the current alliance hub target (always hub, never nearest tag/ferry). */
+    private Translation3d getAllianceHubTarget() {
+        boolean isRed = DriverStation.getAlliance()
+            .map(a -> a == Alliance.Red)
+            .orElse(false);
         return isRed ? constAutoAim.redHubPosition : constAutoAim.blueHubPosition;
     }
 
-    /** True when the robot X is between the two BUMPS (the neutral/danger zone). */
-    private boolean isInNeutralZone(double robotX) {
-        return robotX >= constAutoAim.neutralZoneMinX && robotX <= constAutoAim.neutralZoneMaxX;
+    private double normalizeTo180(double angleDeg) {
+        double wrapped = angleDeg;
+        while (wrapped > 180.0) wrapped -= 360.0;
+        while (wrapped < -180.0) wrapped += 360.0;
+        return wrapped;
     }
 
     @Override
