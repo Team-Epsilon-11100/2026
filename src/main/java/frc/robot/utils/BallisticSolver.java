@@ -37,6 +37,8 @@ public class BallisticSolver {
         // Motor limits
         public double minMotorRpm              = constBallisticSolver.minMotorRPM;
         public double maxMotorRpm              = constBallisticSolver.maxMotorRPM;
+    // Optional cap on apex height above floor; 0 disables this filter.
+    public double maxTrajectoryHeightMeters = constBallisticSolver.maxTrajectoryHeightMeters;
 
     // Linear RPM compensation: add (rpmCompPerSecond * flightTimeSec)
     public double rpmCompPerSecond         = constBallisticSolver.rpmPerSecondOfFlightCompensation;
@@ -125,6 +127,12 @@ public class BallisticSolver {
 
             // Re-derive linear launch speed for impact-angle validation
             double exitSpeed = wheelRpsToExitSpeed(wheelRps, cfg);
+            double peakHeightMeters = cfg.shooterZMeters
+                    + Math.pow(exitSpeed * Math.sin(thetaRad), 2) / (2.0 * cfg.g);
+            if (cfg.maxTrajectoryHeightMeters > 0.0 && peakHeightMeters > cfg.maxTrajectoryHeightMeters) {
+                continue;
+            }
+
             double vSinThetaSq = Math.pow(exitSpeed * Math.sin(thetaRad), 2);
             double twoGY = 2.0 * cfg.g * deltaZ;
 

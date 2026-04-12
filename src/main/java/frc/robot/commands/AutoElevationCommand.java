@@ -77,6 +77,11 @@ public class AutoElevationCommand extends Command {
         }
     }
 
+    /** Latest commanded flywheel target RPM from ballistic solver path. */
+    public double getTargetRpm() {
+        return lastTargetRpm;
+    }
+
     @Override
     public void initialize() {
         hood.setAngle(fixedHoodAngleDeg);
@@ -130,7 +135,7 @@ public class AutoElevationCommand extends Command {
 
         if (s.valid() && s.motorRpm() > MIN_VALID_RPM) {
             // Valid solution found - apply to subsystems immediately
-            lastTargetRpm = s.motorRpm();
+            lastTargetRpm = s.motorRpm() * constBallisticSolver.speedMod;
             
             hood.setAngle(fixedHoodAngleDeg);
             flywheel.setFlywheelRpm(lastTargetRpm);

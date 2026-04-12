@@ -15,6 +15,7 @@ import frc.robot.Constants.constVision;
 import frc.robot.subsystems.drivetrain.Drivetrain;
 import frc.robot.subsystems.turret.Turret;
 import frc.robot.subsystems.vision.Vision;
+import frc.robot.utils.CalculateYaw;
 
 /**
  * Continuously aims the turret at the current alliance HUB center.
@@ -63,8 +64,14 @@ public class AutoYawCommand extends Command {
         SmartDashboard.putNumber("AutoYaw/VisionTimestamp", visionTimestamp);
 
         Pose2d poseForAim = hasFreshVisionPose ? visionPose : odomPose;
-        Rotation2d robotHeading = poseForAim.getRotation();
+    // Use odometry heading for rotational stability; use poseForAim translation for best position.
+    Rotation2d robotHeading = odomPose.getRotation();
         Translation2d robotTranslation = poseForAim.getTranslation();
+    double[] fieldVels = drivetrain.getFieldVelocities();
+    double vxFieldMps = fieldVels[0];
+    double vyFieldMps = fieldVels[1];
+    double omegaRadPerSec = fieldVels[2];
+    double lookaheadSec = constTurret.lookaheadTimeMs / 1000.0;
 
         // Aim from shooter/turret center rather than robot center.
         Translation2d shooterOffsetRobot = new Translation2d(
@@ -81,6 +88,9 @@ public class AutoYawCommand extends Command {
         SmartDashboard.putNumber("AutoYaw/HeadingBiasDeg", 0.0);
 
         Translation3d hubTarget = getAllianceHubTarget();
+        boolean isRedAlliance = DriverStation.getAlliance()
+            .map(a -> a == Alliance.Red)
+            .orElse(false);
 
         // Direct hub-yaw logic:
         // 1) field-relative target angle = atan2(HUB_Y - robotY, HUB_X - robotX)
@@ -89,23 +99,46 @@ public class AutoYawCommand extends Command {
         // 4) normalize to [-180, 180]
         double robotX = shooterPosField.getX();
         double robotY = shooterPosField.getY();
-        double cameraHeading = robotHeading.getDegrees();
+        boolean inNeutralZone = robotX >= constAutoAim.neutralZoneMinX && robotX <= constAutoAim.neutralZoneMaxX;
+        SmartDashboard.putBoolean("AutoYaw/InNeutralZone", inNeutralZone);
+        double fieldRelativeTargetAngle;
+        double robotRelativeTargetAngle;
 
-        double dx = hubTarget.getX() - robotX;
-        double dy = hubTarget.getY() - robotY;
+        if (inNeutralZone) {
+            // Ferry override: point toward own alliance zone.
+            fieldRelativeTargetAngle = isRedAlliance ? 0.0 : 180.0;
+            robotRelativeTargetAngle = normalizeTo180(fieldRelativeTargetAngle - robotHeading.getDegrees());
+        } else {
+            CalculateYaw.AimAngles lookaheadAim = CalculateYaw.aimWithLookahead(
+                new Translation2d(robotX, robotY),
+                robotHeading,
+                vxFieldMps,
+                vyFieldMps,
+                omegaRadPerSec,
+                new Translation2d(hubTarget.getX(), hubTarget.getY()),
+                lookaheadSec
+            );
 
-        double fieldRelativeTargetAngle = Math.toDegrees(Math.atan2(dy, dx));
-        double robotRelativeTargetAngle = fieldRelativeTargetAngle - cameraHeading;
+            fieldRelativeTargetAngle = lookaheadAim.fieldAngle().getDegrees();
+            robotRelativeTargetAngle = lookaheadAim.robotRelativeAngle().getDegrees();
+        }
         double rawTurretYaw = robotRelativeTargetAngle + constTurret.turretAngleOffsetDegrees;
         double targetAngle = normalizeTo180(rawTurretYaw);
 
-    SmartDashboard.putString("AutoYaw/Status", hasFreshVisionPose ? "Tracking alliance HUB (Vision)" : "Tracking alliance HUB (Odom Fallback)");
+        SmartDashboard.putString(
+            "AutoYaw/Status",
+            inNeutralZone
+                ? (isRedAlliance ? "Neutral Zone: Pointing Red Alliance Zone" : "Neutral Zone: Pointing Blue Alliance Zone")
+                : (hasFreshVisionPose ? "Tracking alliance HUB (Vision)" : "Tracking alliance HUB (Odom Fallback)")
+        );
         SmartDashboard.putNumber("AutoYaw/TargetX", hubTarget.getX());
         SmartDashboard.putNumber("AutoYaw/TargetY", hubTarget.getY());
         SmartDashboard.putNumber("AutoYaw/TargetZ", hubTarget.getZ());
         SmartDashboard.putNumber("AutoYaw/FieldRelativeTargetAngle", fieldRelativeTargetAngle);
         SmartDashboard.putNumber("AutoYaw/RobotRelativeTargetAngle", robotRelativeTargetAngle);
         SmartDashboard.putNumber("AutoYaw/RawTurretYaw", rawTurretYaw);
+    SmartDashboard.putNumber("AutoYaw/LookaheadSec", lookaheadSec);
+    SmartDashboard.putNumber("AutoYaw/OmegaRadPerSec", omegaRadPerSec);
 
         turret.setAngle(targetAngle);
 

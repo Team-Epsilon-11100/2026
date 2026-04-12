@@ -65,7 +65,8 @@ public class Kicker extends SubsystemBase {
     public void setFromFlywheelRpm(double flywheelRpm) {
         lastFlywheelInputRpm = flywheelRpm;
         lastTargetSurfaceSpeedMps = 0.0;
-        setKickerRpm(flywheelRpm);
+        double kickerTargetRpm = flywheelRpm / constKicker.gearRatioMotorToWheel;
+        setKickerRpm(kickerTargetRpm);
     }
 
     /** Get measured kicker speed in motor RPM. */

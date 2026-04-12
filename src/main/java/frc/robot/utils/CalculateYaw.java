@@ -45,9 +45,9 @@ public final class CalculateYaw {
                 new Translation2d(vxFieldMps * tSeconds, vyFieldMps * tSeconds)
         );
 
-        Rotation2d robotYawFuture = robotYawField.plus(
-                Rotation2d.fromRadians(omegaRadPerSec * tSeconds)
-        );
+    Rotation2d robotYawFuture = robotYawField.plus(
+        Rotation2d.fromRadians(omegaRadPerSec * tSeconds)
+    );
 
         // Vector from future robot position to goal (field frame)
         Translation2d toGoal = goalPosField.minus(robotPosFuture);

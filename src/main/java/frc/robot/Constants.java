@@ -22,8 +22,8 @@ public class Constants {
         public static final boolean useTagCenterForTesting = false;
 
         // HUB positions on the field (x, y, z) in meters
-        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(183),  4.04, Units.inchesToMeters(183));
-        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(183), 4.04, Units.inchesToMeters(183));
+        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(183),  4, Units.inchesToMeters(183));
+        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(183), 4, Units.inchesToMeters(183));
 
         // Neutral zone (between the BUMPS) - X bounds only, full field width
         // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
@@ -240,7 +240,7 @@ public class Constants {
         public static final double maxTurretMotorPos = homeMotorPos + (maxTurretAngleDegrees * angleToPosFactor);
         public static final double minTurretMotorPos = homeMotorPos + (minTurretAngleDegrees * angleToPosFactor);
 
-        public static final double lookaheadTimeMs = 200;
+        public static final double lookaheadTimeMs = 20;
 
         // Offset (degrees) added to the auto-aim angle to correct for the turret's
         // physical zero not matching the robot's gyro zero.
@@ -303,7 +303,7 @@ public class Constants {
         public static final double surfaceSpeedSign = -1.0; // Keeps current wiring/mechanical direction convention
 
         // Allow enough RPM headroom so follower targets don't clip at high flywheel speed.
-        public static final double maxKickerRPM = 7000;
+        public static final double maxKickerRPM = 5500;
         public static final double minKickerRPM = -maxKickerRPM;
 
         public static final double dutyCycle = -0.8; // Duty cycle (0.0 to 1.0)
@@ -313,8 +313,8 @@ public class Constants {
         public static final double kI = 0.0;
         public static final double kD = 0.000;
         public static final double kS = 0.0;
-        public static final double kV = 0.1;
-        public static final double kA = 0.1;
+        public static final double kV = 0.15;
+        public static final double kA = 0.0;
         
      
     }
@@ -343,9 +343,11 @@ public class Constants {
         public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
 
         // configs
-        public static final double exitVelocityFactor = 1.25; // Tune this: ball exit speed / wheel surface speed
-    public static final double speedMod = 1.0; // Legacy tuning constant (currently not used by BallisticSolver)
+        public static final double exitVelocityFactor = 1.35; // Tune this: ball exit speed / wheel surface speed
+    public static final double speedMod = 0.8; // Legacy tuning constant (currently not used by BallisticSolver)
     public static final double rpmPerSecondOfFlightCompensation = 0.0; // Linear add: + (this * flightTimeSec) RPM
+    // Optional trajectory apex cap (meters above floor). Set to 0 to disable.
+    public static final double maxTrajectoryHeightMeters = 0; // 10 feet, tunable cap to prevent excessively high trajectories
 
         // RPM sweep constraints
         public static final double minMotorRPM = 500.0;
