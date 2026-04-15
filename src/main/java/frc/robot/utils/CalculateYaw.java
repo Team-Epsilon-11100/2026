@@ -49,11 +49,12 @@ public final class CalculateYaw {
         Rotation2d.fromRadians(omegaRadPerSec * tSeconds)
     );
 
-        // Vector from future robot position to goal (field frame)
-        Translation2d toGoal = goalPosField.minus(robotPosFuture);
 
-        // Field-relative turret angle to face goal
-        Rotation2d turretFieldAngle = new Rotation2d(toGoal.getX(), toGoal.getY());
+    // Vector from future robot position to goal (field frame)
+    Translation2d toGoal = goalPosField.minus(robotPosFuture);
+
+    // Field-relative turret angle to face goal
+    Rotation2d turretFieldAngle = new Rotation2d(toGoal.getX(), toGoal.getY());
 
         // Turret angle relative to robot (what turret usually controls)
         Rotation2d turretRobotRelative = wrapToPi(turretFieldAngle.minus(robotYawFuture));

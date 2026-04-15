@@ -93,7 +93,10 @@ public class AutoElevationCommand extends Command {
     public void execute() {
         if (!enabled) return; // Flywheel disabled - do nothing, motor already stopped in setEnabled()
 
-        // Prefer fresh vision pose, but fall back to odometry pose if vision is stale.
+    // Match AutoYaw pose strategy:
+    // - use fresh vision translation when available;
+    // - otherwise fall back to odometry translation;
+    // - always use odometry heading for rotational stability.
         Pose2d odomPose = drivetrain.getPose();
         Pose2d visionPose = Vision.getLatestVisionPose();
         double visionTimestamp = Vision.getLatestVisionTimestamp();
@@ -101,9 +104,16 @@ public class AutoElevationCommand extends Command {
         boolean hasFreshVisionPose = visionPose != null && visionAgeSec <= constVision.latestVisionMaxAgeSec;
         SmartDashboard.putNumber("AutoElev/GyroHeadingDeg", odomPose.getRotation().getDegrees());
 
+        // Increment update counter
+        updateCounter++;
+        boolean shouldUpdateDashboard = (updateCounter >= UPDATE_PERIOD);
+        if (shouldUpdateDashboard) {
+            updateCounter = 0;
+        }
+
         Pose2d poseForAim = hasFreshVisionPose ? visionPose : odomPose;
         Translation2d robotTranslation = poseForAim.getTranslation();
-        Rotation2d robotHeading = poseForAim.getRotation();
+        Rotation2d robotHeading = odomPose.getRotation();
         // Compute shooter/turret center field position from robot center + robot-frame offset.
         Translation2d shooterOffsetRobot = new Translation2d(
             constTurret.shooterOffsetXMeters,
@@ -112,13 +122,6 @@ public class AutoElevationCommand extends Command {
         Translation2d shooterPosField = robotTranslation.plus(
             shooterOffsetRobot.rotateBy(robotHeading)
         );
-        
-        // Increment update counter
-        updateCounter++;
-        boolean shouldUpdateDashboard = (updateCounter >= UPDATE_PERIOD);
-        if (shouldUpdateDashboard) {
-            updateCounter = 0;
-        }
         
         Translation3d hubTarget = getAllianceHubTarget();
         double xMeters = hubTarget.getX() - shooterPosField.getX();
@@ -142,7 +145,12 @@ public class AutoElevationCommand extends Command {
             
             // Update dashboard only periodically to reduce overhead
             if (shouldUpdateDashboard) {
-                SmartDashboard.putString("AutoElev/Status", hasFreshVisionPose ? "Tracking (Vision)" : "Tracking (Odom Fallback)");
+                SmartDashboard.putString(
+                    "AutoElev/Status",
+                    hasFreshVisionPose
+                        ? "Tracking (Vision Translation + Odom Heading)"
+                        : "Tracking (Odom Translation + Odom Heading)"
+                );
                 SmartDashboard.putNumber("AutoElev/TargetAngle", fixedHoodAngleDeg);
                 SmartDashboard.putNumber("AutoElev/LaunchAngle", s.launchAngleDeg());
                 SmartDashboard.putNumber("AutoElev/TargetRPM", lastTargetRpm);
@@ -154,7 +162,7 @@ public class AutoElevationCommand extends Command {
                 SmartDashboard.putNumber("AutoElev/ImpactAngle", s.impactAngleDeg());
                 SmartDashboard.putNumber("AutoElev/ShooterFieldX", shooterPosField.getX());
                 SmartDashboard.putNumber("AutoElev/ShooterFieldY", shooterPosField.getY());
-                SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", hasFreshVisionPose);
+                SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", false);
                 SmartDashboard.putBoolean("AutoElev/UsingVisionTranslation", hasFreshVisionPose);
                 SmartDashboard.putNumber("AutoElev/VisionPoseAgeSec", visionAgeSec);
                 SmartDashboard.putNumber("AutoElev/VisionTimestamp", visionTimestamp);
@@ -169,6 +177,10 @@ public class AutoElevationCommand extends Command {
             if (shouldUpdateDashboard) {
                 String reason = s.valid() ? "RPM too low" : s.reason();
                 SmartDashboard.putString("AutoElev/Status", "No solution: " + reason + " - using last");
+                SmartDashboard.putBoolean("AutoElev/UsingVisionHeading", false);
+                SmartDashboard.putBoolean("AutoElev/UsingVisionTranslation", hasFreshVisionPose);
+                SmartDashboard.putNumber("AutoElev/VisionPoseAgeSec", visionAgeSec);
+                SmartDashboard.putNumber("AutoElev/VisionTimestamp", visionTimestamp);
             }
         }
     }

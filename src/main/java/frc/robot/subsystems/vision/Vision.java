@@ -47,7 +47,9 @@ public class Vision extends SubsystemBase {
     
     // Latest vision-estimated robot pose - accessible to all subsystems
     private static Pose2d latestVisionPose = null;
+    // FPGA receipt timestamp used by command-side freshness checks.
     private static double latestVisionTimestamp = 0.0;
+    // Raw camera capture timestamp for diagnostics.
     private static double latestVisionCaptureTimestamp = 0.0;
     
     // Static reference to the Vision subsystem instance for accessing camera inputs
@@ -85,7 +87,7 @@ public class Vision extends SubsystemBase {
     }
 
     /**
-     * Returns the FPGA timestamp when the latest vision pose was received/updated.
+     * Returns the timestamp of the latest vision pose estimate.
      * 
      * @return Timestamp in seconds, or 0.0 if no valid vision data is available
      */
@@ -230,21 +232,33 @@ public class Vision extends SubsystemBase {
                     continue;
                 }
 
-                // ===== FILTERING: Accept all observed tag-based poses =====
-                // Intentionally disabled quality/alliance filtering so every tag observation
-                // can contribute to pose estimation during bring-up.
-                boolean rejectPose = observation.tagCount() == 0;
+                // ===== FILTERING: Reject invalid observations =====
+                double fieldMargin = constVision.fieldBoundsMarginMeters;
+                boolean rejectPose = 
+                    observation.tagCount() == 0 ||  // Must have at least one tag
+                    (observation.tagCount() == 1 && observation.ambiguity() > constVision.maxAmbiguity) || // Single tag with high ambiguity
+                    Math.abs(observation.pose().getZ()) > constVision.maxZError || // Unrealistic Z height
+                    observation.pose().getX() < -fieldMargin ||  // Outside field boundaries (with margin)
+                    observation.pose().getX() > (constVision.aprilTagLayout.getFieldLength() + fieldMargin) ||
+                    observation.pose().getY() < -fieldMargin ||
+                    observation.pose().getY() > (constVision.aprilTagLayout.getFieldWidth() + fieldMargin);
 
                 // Debug: Log why poses are rejected
                 if (rejectPose) {
                     if (observation.tagCount() == 0) {
                         SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "No tags");
+                    } else if (observation.tagCount() == 1 && observation.ambiguity() > constVision.maxAmbiguity) {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
+                            "Ambiguity: " + String.format("%.2f", observation.ambiguity()));
+                    } else if (Math.abs(observation.pose().getZ()) > constVision.maxZError) {
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", 
+                            "Z error: " + String.format("%.2fm", observation.pose().getZ()));
                     } else {
-                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Rejected");
+                        SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Out of bounds");
                     }
                     continue;  // Skip rejected observations
                 } else {
-                    SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Accepted (NoFiltering)");
+                    SmartDashboard.putString("Vision/Camera" + cameraIndex + "/Reject", "Accepted");
                 }
 
                 // ===== POSE ESTIMATION: Convert 3D pose to 2D floor pose =====
@@ -270,9 +284,6 @@ public class Vision extends SubsystemBase {
                 cameraAcceptedPoses.add(floorPose3d);
 
                 // ===== UPDATE STORED POSE: Track latest vision estimate =====
-                // Choose newest observation in THIS periodic cycle using capture timestamp,
-                // then stamp freshness with FPGA time below. This avoids latch-ups when camera
-                // timestamps reset, stall, or are not strictly monotonic relative to robot time.
                 if (observation.timestamp() >= newestCaptureTimestampThisCycle) {
                     newestAcceptedPoseThisCycle = floorPose2d;
                     newestCaptureTimestampThisCycle = observation.timestamp();
@@ -315,7 +326,7 @@ public class Vision extends SubsystemBase {
             allAcceptedPoses.addAll(cameraAcceptedPoses);
         }
 
-        // Publish newest accepted pose from this cycle (if any) and mark freshness by FPGA time.
+        // Publish newest accepted pose from this periodic cycle and stamp freshness in FPGA time.
         if (newestAcceptedPoseThisCycle != null) {
             latestVisionPose = newestAcceptedPoseThisCycle;
             latestVisionCaptureTimestamp = newestCaptureTimestampThisCycle;
@@ -335,7 +346,7 @@ public class Vision extends SubsystemBase {
             Logger.recordOutput("Vision/LatestPoseTimestamp", latestVisionTimestamp);
             Logger.recordOutput("Vision/LatestPoseCaptureTimestamp", latestVisionCaptureTimestamp);
 
-            // Publish to SmartDashboard as a double array [x, y, headingDeg, fpgaTimestamp]
+            // Publish to SmartDashboard as a double array [x, y, headingDeg, timestamp]
             SmartDashboard.putNumberArray("Vision/Pose", new double[] {
                 latestVisionPose.getX(),
                 latestVisionPose.getY(),

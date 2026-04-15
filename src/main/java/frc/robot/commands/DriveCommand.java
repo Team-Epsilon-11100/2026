@@ -21,6 +21,7 @@ public class DriveCommand extends Command {
     private final DoubleSupplier m_strafe;
     private final DoubleSupplier m_rotation;
     private final BooleanSupplier m_slowDrive;
+    private final BooleanSupplier m_shooting;
     private final double m_maxSpeed;
     private final double m_maxAngularRate;
     private final Vision m_vision;
@@ -42,7 +43,8 @@ public class DriveCommand extends Command {
             DoubleSupplier translation,
             DoubleSupplier strafe,
             DoubleSupplier rotation,
-            BooleanSupplier slowDrive,
+        BooleanSupplier slowDrive,
+        BooleanSupplier shooting,
             double maxSpeed,
             double maxAngularRate,
             Vision vision) {
@@ -52,9 +54,10 @@ public class DriveCommand extends Command {
         m_strafe = strafe;
         m_rotation = rotation;
         m_slowDrive = slowDrive;
-        m_maxSpeed = maxSpeed;
+    m_maxSpeed = maxSpeed;
         m_maxAngularRate = maxAngularRate;
         m_vision = vision;
+    m_shooting = shooting;
 
         addRequirements(driveSubsystem);
     }
@@ -107,6 +110,13 @@ public class DriveCommand extends Command {
             translationValue *= constDrivetrain.halfSpeedFactor;
             strafeValue *= constDrivetrain.halfSpeedFactor;
             rotationValue *= constDrivetrain.halfSpeedFactor;
+        }
+
+        // If shooting, apply the shooting speed factor to all axes
+        if (m_shooting.getAsBoolean()) {
+            translationValue *= constDrivetrain.shootingSpeedFactor;
+            strafeValue *= constDrivetrain.shootingSpeedFactor;
+            rotationValue *= constDrivetrain.shootingSpeedFactor;
         }
 
         // Translate input into velocities

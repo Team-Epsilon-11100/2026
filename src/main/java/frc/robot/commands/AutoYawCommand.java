@@ -44,6 +44,8 @@ public class AutoYawCommand extends Command {
         executeCounter = 0;
         SmartDashboard.putString("AutoYaw/Status", "Active");
         System.out.println("AutoYaw: started (HUB target mode)");
+        // Publish default tangential scale so it can be tuned at runtime
+        SmartDashboard.putNumber("AutoYaw/LookaheadTangentialScale", constTurret.lookaheadTangentialScale);
     }
 
     @Override
@@ -109,18 +111,73 @@ public class AutoYawCommand extends Command {
             fieldRelativeTargetAngle = isRedAlliance ? 0.0 : 180.0;
             robotRelativeTargetAngle = normalizeTo180(fieldRelativeTargetAngle - robotHeading.getDegrees());
         } else {
+            // Also compute intermediate lookahead values for debugging (match CalculateYaw logic)
+            Translation2d robotPosField = new Translation2d(robotX, robotY);
+            Translation2d robotPosFuture = robotPosField.plus(new Translation2d(vxFieldMps * lookaheadSec, vyFieldMps * lookaheadSec));
+            Rotation2d robotYawFuture = robotHeading.plus(Rotation2d.fromRadians(omegaRadPerSec * lookaheadSec));
+            Translation2d toGoal = new Translation2d(hubTarget.getX(), hubTarget.getY()).minus(robotPosFuture);
+            Rotation2d turretFieldAngle = new Rotation2d(toGoal.getX(), toGoal.getY());
+
+            SmartDashboard.putNumber("AutoYaw/Dbg_RobotPosFutureX", robotPosFuture.getX());
+            SmartDashboard.putNumber("AutoYaw/Dbg_RobotPosFutureY", robotPosFuture.getY());
+            SmartDashboard.putNumber("AutoYaw/Dbg_ToGoalX", toGoal.getX());
+            SmartDashboard.putNumber("AutoYaw/Dbg_ToGoalY", toGoal.getY());
+            SmartDashboard.putNumber("AutoYaw/Dbg_TurretFieldAngleDeg", turretFieldAngle.getDegrees());
+            SmartDashboard.putNumber("AutoYaw/Dbg_RobotYawFutureDeg", robotYawFuture.getDegrees());
+
+            // Decompose field velocity into radial/tangential components relative to the target
+            Translation2d goalPos = new Translation2d(hubTarget.getX(), hubTarget.getY());
+            Translation2d toGoalNow = goalPos.minus(robotPosField);
+            Translation2d unitToGoal;
+            if (toGoalNow.getNorm() < 1e-6) {
+                unitToGoal = new Translation2d(1.0, 0.0); // arbitrary unit when on top of target
+            } else {
+                unitToGoal = new Translation2d(toGoalNow.getX() / toGoalNow.getNorm(), toGoalNow.getY() / toGoalNow.getNorm());
+            }
+            // Perpendicular unit (CCW 90°)
+            Translation2d perpUnit = new Translation2d(-unitToGoal.getY(), unitToGoal.getX());
+
+            double radialVel = vxFieldMps * unitToGoal.getX() + vyFieldMps * unitToGoal.getY();
+            double tangentialVel = vxFieldMps * perpUnit.getX() + vyFieldMps * perpUnit.getY();
+
+            SmartDashboard.putNumber("AutoYaw/Dbg_RadialVelMps", radialVel);
+            SmartDashboard.putNumber("AutoYaw/Dbg_TangentialVelMps", tangentialVel);
+
+            // Apply tunable scale to tangential component to control how much lateral motion
+            // affects the lookahead displacement (1.0 = full effect, 0.0 = ignore tangential motion)
+            double tangentialScale = SmartDashboard.getNumber("AutoYaw/LookaheadTangentialScale", constTurret.lookaheadTangentialScale);
+
+            double vxAdj = unitToGoal.getX() * radialVel + perpUnit.getX() * tangentialVel * tangentialScale;
+            double vyAdj = unitToGoal.getY() * radialVel + perpUnit.getY() * tangentialVel * tangentialScale;
+
             CalculateYaw.AimAngles lookaheadAim = CalculateYaw.aimWithLookahead(
-                new Translation2d(robotX, robotY),
+                robotPosField,
                 robotHeading,
-                vxFieldMps,
-                vyFieldMps,
+                vxAdj,
+                vyAdj,
                 omegaRadPerSec,
-                new Translation2d(hubTarget.getX(), hubTarget.getY()),
+                goalPos,
                 lookaheadSec
             );
 
             fieldRelativeTargetAngle = lookaheadAim.fieldAngle().getDegrees();
             robotRelativeTargetAngle = lookaheadAim.robotRelativeAngle().getDegrees();
+
+            // Compute the aim without tangential component to show tangential contribution
+            double vxNoTang = unitToGoal.getX() * radialVel + perpUnit.getX() * 0.0;
+            double vyNoTang = unitToGoal.getY() * radialVel + perpUnit.getY() * 0.0;
+            CalculateYaw.AimAngles lookaheadNoTang = CalculateYaw.aimWithLookahead(
+                robotPosField,
+                robotHeading,
+                vxNoTang,
+                vyNoTang,
+                omegaRadPerSec,
+                goalPos,
+                lookaheadSec
+            );
+            double robotRelNoTangDeg = lookaheadNoTang.robotRelativeAngle().getDegrees();
+            double tangentialAimDeltaDeg = robotRelativeTargetAngle - robotRelNoTangDeg;
+            SmartDashboard.putNumber("AutoYaw/Dbg_TangentialAimDeltaDeg", tangentialAimDeltaDeg);
         }
         double rawTurretYaw = robotRelativeTargetAngle + constTurret.turretAngleOffsetDegrees;
         double targetAngle = normalizeTo180(rawTurretYaw);

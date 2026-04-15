@@ -9,9 +9,6 @@ import edu.wpi.first.math.util.Units;
 
 public class Constants {
 
-
-   
-
     public class constAutoAim {
         // Testing mode: aim turret directly at closest AprilTag (no odometry logic)
         // Set to false for competition to use odometry + neutral zone ferry logic
@@ -21,25 +18,35 @@ public class Constants {
         // Set to false for competition to use alliance HUB height
         public static final boolean useTagCenterForTesting = false;
 
-        // HUB positions on the field (x, y, z) in meters
-        public static final Translation3d blueHubPosition = new Translation3d(Units.inchesToMeters(183),  4, Units.inchesToMeters(183));
-        public static final Translation3d redHubPosition  = new Translation3d(Units.inchesToMeters(183), 4, Units.inchesToMeters(183));
+    // HUB positions on the field (x, y, z) in meters
+    // Measured: blue hub center is 186 in from blue edge, and horizontal center is 160 in.
+    // Red hub mirrors blue across full field length (651 in), so X = 651 - 186 = 465 in.
+    public static final Translation3d blueHubPosition = new Translation3d(
+        Units.inchesToMeters(186),
+        Units.inchesToMeters(160),
+        Units.inchesToMeters(72));
+    public static final Translation3d redHubPosition = new Translation3d(
+        Units.inchesToMeters(465),
+        Units.inchesToMeters(160),
+        Units.inchesToMeters(72));
 
         // Neutral zone (between the BUMPS) - X bounds only, full field width
-        // When robot X is inside this range, switch to ferry-aiming at a lateral midpoint
-        public static final double neutralZoneMinX = 4.59;   // Blue BUMPS center
-        public static final double neutralZoneMaxX = 11.95;  // Red  BUMPS center
-        public static final double fieldWidth       = 8.07;  // Full field Y (guardrail to guardrail)
+        // When robot X is inside this range, switch to ferry-aiming at a lateral
+        // midpoint
+        public static final double neutralZoneMinX = 4.59; // Blue BUMPS center
+        public static final double neutralZoneMaxX = 11.95; // Red BUMPS center
+        public static final double fieldWidth = 8.07; // Full field Y (guardrail to guardrail)
 
-        // Ferry target points: midpoint between HUB and nearest guardrail (y=0 or y=8.07)
+        // Ferry target points: midpoint between HUB and nearest guardrail (y=0 or
+        // y=8.07)
         // Blue Alliance: HUB at x=4.63
-        public static final Translation3d blueFerryPointRight = new Translation3d(4.63,  1, 2); // toward y=0
-        public static final Translation3d blueFerryPointLeft  = new Translation3d(4.63,  7, 2); // toward y=8.07
+        public static final Translation3d blueFerryPointRight = new Translation3d(4.63, 1, 2); // toward y=0
+        public static final Translation3d blueFerryPointLeft = new Translation3d(4.63, 7, 2); // toward y=8.07
         // Red Alliance: HUB at x=11.92
-        public static final Translation3d redFerryPointRight  = new Translation3d(11.92, 1, 2); // toward y=0
-        public static final Translation3d redFerryPointLeft   = new Translation3d(11.92, 7, 2); // toward y=8.07
+        public static final Translation3d redFerryPointRight = new Translation3d(11.92, 1, 2); // toward y=0
+        public static final Translation3d redFerryPointLeft = new Translation3d(11.92, 7, 2); // toward y=8.07
     }
-    
+
     public class constDrivetrain {
         public static final int joystickPort = 0;
         public static final double maxAngularRate = 2 * Math.PI; // rad/s (about 1 rotation/sec)
@@ -53,31 +60,35 @@ public class Constants {
 
         // Speed Control Constants
         public static final double maxSpeed = 4.39; // m/s, aligned with TunerConstants speed at 12V
-        public static final double speedModifier = 1.0; 
+        public static final double speedModifier = 1.0;
+    // Speed multiplier applied to all drivetrain axes while shooting (0.0-1.0)
+    public static final double shootingSpeedFactor = 0.3;
 
         // Dimensions
         public static final double chassisWidth = Units.inchesToMeters(27.0);
         public static final double chassisLength = Units.inchesToMeters(27.0);
     }
-    public class constVision {
-        
-        // Basic filtering thresholds - RELAXED for better detection
-    // Ambiguity filtering is handled in PhotonVision pipeline; robot code does not reject by ambiguity.
-    public static final double maxAmbiguity = 0.60;
-    public static final double maxZError = 3.0; // Loosened to accept more camera-based solves (Photon handles quality)
-    public static final double fieldBoundsMarginMeters = 1.0; // Allow slight out-of-field noise near borders
-    public static final double latestVisionMaxAgeSec = 0.12; // Ignore stale vision pose after 300ms
-    // AutoYaw heading fusion tuning (vision heading into odom heading bias)
-    public static final double maxHeadingInnovationDeg = 45.0; // Reject abrupt heading jumps bigger than this
-    public static final double headingBiasBlendAlpha = 0.12; // 0..1, lower = smoother/safer, higher = faster correction
 
-        // Tag filtering for auto-alignment
-        public static final double maxTagDistance = 5.0; // Maximum distance to consider tags (meters)
+    public class constVision {
+
+        // Basic filtering thresholds - RELAXED for better detection
+        // Ambiguity filtering is handled in PhotonVision pipeline; robot code does not
+        // reject by ambiguity.
+        public static final double maxAmbiguity = 0.60;
+        public static final double maxZError = 3.0; // Loosened to accept more camera-based solves (Photon handles
+                                                    // quality)
+        public static final double fieldBoundsMarginMeters = 1.0; // Allow slight out-of-field noise near borders
+        public static final double latestVisionMaxAgeSec = 0.12; // Ignore stale vision pose after 300ms
+        // AutoYaw heading fusion tuning (vision heading into odom heading bias)
+        public static final double maxHeadingInnovationDeg = 45.0; // Reject abrupt heading jumps bigger than this
+        public static final double headingBiasBlendAlpha = 0.12; // 0..1, lower = smoother/safer, higher = faster
+                                                                 // correction
+
+    // Tag filtering for auto-alignment
+    // No range filter: any detected tag distance is allowed.
+    public static final double maxTagDistance = Double.POSITIVE_INFINITY;
         public static final int[] blueTagIds = { 17, 18, 19, 20, 21, 22 };
         public static final int[] redTagIds = { 6, 7, 8, 9, 10, 11 };
-
-        
-
 
         // Tag selection scoring weights (all values represent penalty/bonus in meters)
         public static final double distanceWeight = 2.0; // Weight for distance component (1.0 = 1 meter = 1 point)
@@ -104,47 +115,44 @@ public class Constants {
         public static final String leftCameraName = "LeftCamera";
         public static final String rightCameraName = "RightCamera";
 
-    // Optional MJPEG stream URLs for Elastic CameraPublisher widgets.
-    // Set these to your PhotonVision stream endpoints when known.
-    // Example format: "http://photonvision.local:1182/?action=stream"
-    public static final String mainCameraStreamUrl = "";
-    public static final String leftCameraStreamUrl = "";
-    public static final String rightCameraStreamUrl = "";
+        // Optional MJPEG stream URLs for Elastic CameraPublisher widgets.
+        // Set these to your PhotonVision stream endpoints when known.
+        // Example format: "http://photonvision.local:1182/?action=stream"
+        public static final String mainCameraStreamUrl = "";
+        public static final String leftCameraStreamUrl = "";
+        public static final String rightCameraStreamUrl = "";
 
-        // Main camera: Center front of robot
-        // Left camera: Front-left of robot
-        // Right camera: Front-right of robot
-        // Using simple positions for testing - adjust based on actual robot measurements
+    // Camera transforms are robot-to-camera in WPILib coordinates:
+    // +X forward, +Y left, +Z up.
         public static final Transform3d mainCameraOffset = new Transform3d(
-        // Camera was mounted at the front in code; move to back by negating X.
-        // Also rotate yaw by 180° so the camera faces the same field direction
-        // when mounted at the rear.
-        new Translation3d(Units.inchesToMeters(-12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(23)),
-        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Look rear-center
+        // Main camera: rear-left, diagonal outward.
+                new Translation3d(Units.inchesToMeters(-12.28), Units.inchesToMeters(12.309), Units.inchesToMeters(23)),
+        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(45) + Math.PI)); // Rear-left diagonal
 
-    public static final Transform3d leftCameraOffset = new Transform3d(
-    // Side-mounted at left bumper edge on a 27x27 chassis, pitched up 20°.
-    // WPILib robot coords: +Y is left.
-    new Translation3d(0.0, Units.inchesToMeters(13.5), Units.inchesToMeters(18.3)),
-    new Rotation3d(0, Math.toRadians(-20), Math.toRadians(90))); // Face out robot-left
+        public static final Transform3d leftCameraOffset = new Transform3d(
+        // Left camera (logical name): opposite side of main, up to right bumper,
+        // facing outward from the robot and tilted 20° up.
+        // WPILib pitch is positive-down, so -20° means 20° up.
+        new Translation3d(0.0, Units.inchesToMeters(-13.5), Units.inchesToMeters(18.3)),
+        new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-90))); // Face out robot-right
 
-    public static final Transform3d rightCameraOffset = new Transform3d(
-    // Side-mounted at right bumper edge on a 27x27 chassis, pitched up 20°.
-    // WPILib robot coords: -Y is right.
-    new Translation3d(0.0, Units.inchesToMeters(-13.5), Units.inchesToMeters(18.3)),
-    new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-90))); // Face out robot-right
-
+        public static final Transform3d rightCameraOffset = new Transform3d(
+                // Side-mounted at right bumper edge on a 27x27 chassis, pitched up 20°.
+                // WPILib robot coords: -Y is right.
+                new Translation3d(0.0, Units.inchesToMeters(-13.5), Units.inchesToMeters(18.3)),
+                new Rotation3d(0, Math.toRadians(-20), Math.toRadians(-90))); // Face out robot-right
 
         // Standard deviation multipliers for each camera (lower = more trusted)
         // Index 0 = Main, 1 = Left, 2 = Right
         public static final double[] cameraStdDevFactors = new double[] {
                 1.0, // Main camera (most trusted - center position, best view)
-        2.2, // Left camera (side angle, less trusted than center)
-        2.2  // Right camera (side angle, less trusted than center)
+        3.0, // Left camera (side-facing, down-weighted to reduce fusion noise)
+                2.2 // Right camera (side angle, less trusted than center)
         };
 
         // Multipliers to apply for MegaTag 2 observations
-        // Angular factor is NOT infinity so that multi-tag heading corrections are fused.
+        // Angular factor is NOT infinity so that multi-tag heading corrections are
+        // fused.
         public static final double linearStdDevMegatag2Factor = 0.5;
         public static final double angularStdDevMegatag2Factor = 1.0; // was POSITIVE_INFINITY — now fuses heading
 
@@ -154,7 +162,7 @@ public class Constants {
         public static final int cameraResolutionHeight = 480;
         public static final double cameraFOVDegrees = 90.0;
     }
-    
+
     public class constHood {
         public static final int hoodMotorId = 31; // 3x = Shooter system
         public static final double maxHoodAngleDegrees = 56;
@@ -168,18 +176,24 @@ public class Constants {
 
         /**
          * Angle convention switch:
-         * true  -> hood angle is complementary to launch angle (launch = 90 - hood),
-         *         e.g. hood 20° means launch 70°.
+         * true -> hood angle is complementary to launch angle (launch = 90 - hood),
+         * e.g. hood 20° means launch 70°.
          * false -> hood angle already equals launch angle from horizontal.
          */
         public static final boolean hoodAngleIsComplementOfLaunch = true;
 
-        /** Convert mechanism hood angle (deg) to ballistic launch angle (deg above horizontal). */
+        /**
+         * Convert mechanism hood angle (deg) to ballistic launch angle (deg above
+         * horizontal).
+         */
         public static double hoodAngleToLaunchAngleDeg(double hoodAngleDeg) {
             return hoodAngleIsComplementOfLaunch ? (90.0 - hoodAngleDeg) : hoodAngleDeg;
         }
 
-        /** Convert ballistic launch angle (deg above horizontal) to mechanism hood angle (deg). */
+        /**
+         * Convert ballistic launch angle (deg above horizontal) to mechanism hood angle
+         * (deg).
+         */
         public static double launchAngleToHoodAngleDeg(double launchAngleDeg) {
             return hoodAngleIsComplementOfLaunch ? (90.0 - launchAngleDeg) : launchAngleDeg;
         }
@@ -192,25 +206,23 @@ public class Constants {
                 hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
                 hoodAngleToLaunchAngleDeg(maxHoodAngleDegrees));
 
-        public static final double angleToPosFactor =
-            (maxHoodMotorPos - minHoodMotorPos) /
-            (maxHoodAngleDegrees - minHoodAngleDegrees);
+        public static final double angleToPosFactor = (maxHoodMotorPos - minHoodMotorPos) /
+                (maxHoodAngleDegrees - minHoodAngleDegrees);
 
         // Derived commanded ceiling angle from soft motor-position cap.
-        public static final double softMaxHoodAngleDegrees =
-            minHoodAngleDegrees +
-            (softMaxHoodMotorPos - minHoodMotorPos) / angleToPosFactor;
+        public static final double softMaxHoodAngleDegrees = minHoodAngleDegrees +
+                (softMaxHoodMotorPos - minHoodMotorPos) / angleToPosFactor;
 
-    // Solver launch-angle limits derived from OPERATING hood limits (min to soft-max).
-    // Use these when you want ballistic solutions to obey the non-physical soft cap.
-    public static final double minLaunchAngleSoftDegrees = Math.min(
-        hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
-        hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
-    public static final double maxLaunchAngleSoftDegrees = Math.max(
-        hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
-        hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
-
-        
+        // Solver launch-angle limits derived from OPERATING hood limits (min to
+        // soft-max).
+        // Use these when you want ballistic solutions to obey the non-physical soft
+        // cap.
+        public static final double minLaunchAngleSoftDegrees = Math.min(
+                hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+                hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
+        public static final double maxLaunchAngleSoftDegrees = Math.max(
+                hoodAngleToLaunchAngleDeg(minHoodAngleDegrees),
+                hoodAngleToLaunchAngleDeg(softMaxHoodAngleDegrees));
 
         public static double kP = 2.0;
         public static double kI = 0.0;
@@ -219,17 +231,17 @@ public class Constants {
 
     public class constTurret {
         public static final int turretMotorId = 33; // TODO: set correct motor ID (was 33)
-        
+
         // Turret angle limits (degrees, robot-relative)
         // 0° = forward, positive = CCW when viewed from above
-        public static final double maxTurretAngleDegrees =  180.0;  // CCW limit
-        public static final double minTurretAngleDegrees = -180.0;  // CW limit
+        public static final double maxTurretAngleDegrees = 180.0; // CCW limit
+        public static final double minTurretAngleDegrees = -180.0; // CW limit
 
         // Turret gear reduction: motor rotations per 1 turret rotation.
-        public static final double turretGearReduction = 125/3;
+        public static final double turretGearReduction = 125.0 / 3.0;
 
         // Motor position offset (rotations) when turret is physically at 0° (forward).
-        // Keep this as your zero-reference calibration constant.
+        // Keep this as your zero-reference calibration constant.s
         public static final double homeMotorPos = -21.1;
 
         // Conversion: motor rotations per turret degree.
@@ -240,19 +252,20 @@ public class Constants {
         public static final double maxTurretMotorPos = homeMotorPos + (maxTurretAngleDegrees * angleToPosFactor);
         public static final double minTurretMotorPos = homeMotorPos + (minTurretAngleDegrees * angleToPosFactor);
 
-        public static final double lookaheadTimeMs = 20;
+        public static final double lookaheadTimeMs = 200;
+    // Scale applied to the tangential component (perpendicular to robot->target)
+    // during lookahead. 1.0 = use full tangential velocity, 0.0 = ignore tangential motion.
+    public static final double lookaheadTangentialScale = 1.5;
 
         // Offset (degrees) added to the auto-aim angle to correct for the turret's
         // physical zero not matching the robot's gyro zero.
         // The motor was zeroed at the 180° position (-0.5 rot), so the turret
         // forward (0°) corresponds to -21.1 motor rotations.
         // Tune this if the turret points in the wrong direction:
-        //   pointing CW of target  → increase this value
-        //   pointing CCW of target → decrease this value
-    
-        public static final double turretAngleOffsetDegrees = 90;
-     
-        
+        // pointing CW of target → increase this value
+        // pointing CCW of target → decrease this value
+
+        public static final double turretAngleOffsetDegrees = 90.0 + (45.0*0.25);
 
         // PID gains
         public static final double kP = 0.5;
@@ -269,11 +282,10 @@ public class Constants {
         public static final int intakeMotorId = 41; // 41
         public static final int pivotMotorId = 42; // 42
 
-        public static final double dutyCycle =
-         0.75; // Duty cycle (0.0 to 1.0)
+        public static final double dutyCycle = 0.75; // Duty cycle (0.0 to 1.0)
 
         public static final double pivotKp = 1.0;
-        public static final double pivotKi = 0.0;   
+        public static final double pivotKi = 0.0;
         public static final double pivotKd = 0.0;
 
         public static final double deployedPos = 32.0; // Motor rotations for deployed position
@@ -288,10 +300,23 @@ public class Constants {
 
     public class constIndexer {
         public static final int indexerMotorId = 51; // 5x = Indexer system
-        
+
         public static final double dutyCycle = 1.0; // Duty cycle (0.0 to 1.0)
         public static final double idleDutyCycle = 0; // Minimum duty cycle to hold balls in place without jamming
-        public static final double reverseDutyCycle = -0.5; // Duty cycle for reverse (unjam)
+    public static final double reverseDutyCycle = -0.5; // Half-speed reverse (unjam)
+
+        // Velocity closed-loop settings (similar pattern to kicker).
+        // When enabled, indexer runs at a fixed target speed.
+        public static final double targetRpm = 5500.0;
+        public static final double maxIndexerRPM = 5500.0;
+        public static final double minIndexerRPM = -maxIndexerRPM;
+
+        public static final double kP = 0.25;
+        public static final double kI = 0.0;
+        public static final double kD = 0.0;
+        public static final double kS = 0.0;
+        public static final double kV = 0.15;
+        public static final double kA = 0.0;
     }
 
     public class constKicker {
@@ -299,11 +324,12 @@ public class Constants {
 
         // Physical surface-speed follower constants.
         public static final double wheelDiameterMeters = Units.inchesToMeters(4.0); // 4-inch kicker wheel
-        public static final double gearRatioMotorToWheel = 2.0; // 2:1 reduction => motor spins 2x wheel speed
+        public static final double gearRatioMotorToWheel = 1.2; // 2:1 reduction => motor spins 2x wheel speed
         public static final double surfaceSpeedSign = -1.0; // Keeps current wiring/mechanical direction convention
 
-        // Allow enough RPM headroom so follower targets don't clip at high flywheel speed.
-        public static final double maxKickerRPM = 5500;
+        // Allow enough RPM headroom so follower targets don't clip at high flywheel
+        // speed.
+        public static final double maxKickerRPM = 7000;
         public static final double minKickerRPM = -maxKickerRPM;
 
         public static final double dutyCycle = -0.8; // Duty cycle (0.0 to 1.0)
@@ -315,8 +341,7 @@ public class Constants {
         public static final double kS = 0.0;
         public static final double kV = 0.15;
         public static final double kA = 0.0;
-        
-     
+
     }
 
     public class constFlywheel {
@@ -324,30 +349,34 @@ public class Constants {
         public static final double maxFlywheelRPM = 5500;
         public static final double minFlywheelRPM = 0;
 
-        public static final double kP = 0.3;
+        public static final double kP = 0.2;
         public static final double kI = 0.0;
         public static final double kD = 0.00;
-        public static final double kS = 0.5; 
-        public static final double kV = 0.15; 
-        public static final double kA = 0.03; 
+        public static final double kS = 0.5;
+        public static final double kV = 0.15;
+        public static final double kA = 0.03;
 
     }
 
     public class constBallisticSolver {
         // Shooter physical constants
-        public static final double shooterHeightMeters = Units.inchesToMeters(23.25); // Height of shooter off ground (meters)
+        public static final double shooterHeightMeters = Units.inchesToMeters(23.25); // Height of shooter off ground
+                                                                                      // (meters)
         public static final double gravity = 9.806; // m/s^2
-        
+
         // Flywheel configuration
         public static final double flywheelDiameterMeters = Units.inchesToMeters(4); // 4 inches
-        public static final double gearRatioMotorToWheel = 24.0 / 18.0; // Belt ratio: 24T motor : 18T flywheel = 1.333
+    // Motor rotations per wheel rotation for 24T motor driving 18T flywheel pulley.
+    // Overdrive means wheel spins faster than motor, so motor/wheel = 18/24 = 0.75.
+    public static final double gearRatioMotorToWheel = 18.0 / 24.0;
 
         // configs
-        public static final double exitVelocityFactor = 1.35; // Tune this: ball exit speed / wheel surface speed
-    public static final double speedMod = 0.8; // Legacy tuning constant (currently not used by BallisticSolver)
-    public static final double rpmPerSecondOfFlightCompensation = 0.0; // Linear add: + (this * flightTimeSec) RPM
-    // Optional trajectory apex cap (meters above floor). Set to 0 to disable.
-    public static final double maxTrajectoryHeightMeters = 0; // 10 feet, tunable cap to prevent excessively high trajectories
+        public static final double exitVelocityFactor =0.6; // Tune this: ball exit speed / wheel surface speed
+        public static final double speedMod = 1; // Legacy tuning constant (currently not used by BallisticSolver)
+        public static final double rpmPerSecondOfFlightCompensation = 0.0; // Linear add: + (this * flightTimeSec) RPM
+        // Optional trajectory apex cap (meters above floor). Set to 0 to disable.
+        public static final double maxTrajectoryHeightMeters = 0; // 10 feet, tunable cap to prevent excessively high
+                                                                  // trajectories
 
         // RPM sweep constraints
         public static final double minMotorRPM = 500.0;

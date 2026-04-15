@@ -87,7 +87,8 @@ public class RobotContainer {
             () -> -driverController.getLeftX(), // Left/right (negated for correct direction)
             () -> -driverController.getRightX(), // Rotation (negated for correct direction)
             driverController.b(), // Slow drive mode (hold left bumper)
-            constDrivetrain.maxSpeed, // Max speed
+      driverController.rightTrigger(), // Shooting (hold right trigger)
+      constDrivetrain.maxSpeed, // Max speed
             constDrivetrain.maxAngularRate, // Max angular rate
             vision // Vision subsyst em
         ));
@@ -116,7 +117,14 @@ public class RobotContainer {
     driverController.rightTrigger().whileTrue(
         Commands.run(() -> {
           kicker.setFromFlywheelRpm(flywheel.getFlywheelRpm());
-          indexer.setDutyCycle(constIndexer.dutyCycle);
+          // Only run the indexer when the flywheel is enabled. If flywheel has been
+          // disabled via POV up, keep indexer idle to avoid feeding balls into a
+          // stopped shooter.
+          if (flywheelEnabled) {
+            indexer.setDutyCycle(constIndexer.dutyCycle);
+          } else {
+            indexer.setDutyCycle(constIndexer.idleDutyCycle);
+          }
         }, kicker, indexer)).whileFalse(
             Commands.runOnce(() -> {
               kicker.stop();
@@ -149,7 +157,7 @@ public class RobotContainer {
     // Left trigger: Pump intake while held, retract when released
     driverController.leftTrigger().whileTrue(
         new PumpIntakeCommand(intake));
-
+ 
     // POV down: reverse kicker and indexer while held (unjam)
     driverController.povDown().whileTrue(
         Commands.runOnce(() -> {
